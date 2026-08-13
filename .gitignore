@@ -1,0 +1,11 @@
+.pio
+.vscode/
+.clang_complete
+.gcc-flags.json
+.gdb_history
+.projectile
+.ccls-cache
+*.bin
+*.elf
+*.hex
+scratch/
