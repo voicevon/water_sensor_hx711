@@ -50,10 +50,8 @@ void ble_update(const uint16_t *sensors, const bool *states) {
 
     advData.setManufacturerData(mData);
 
-    // 3. 停止 → 更新数据 → 重启广播（使数据立即生效）
-    s_pAdvertising->stop();
+    // 3. 动态更新广播数据（无需重启广播，底层会在下一个周期自动生效）
     s_pAdvertising->setAdvertisementData(advData);
-    s_pAdvertising->start();
 
     // 4. 调试日志（已屏蔽，避免干扰 WiFi 调试）
 #if 0

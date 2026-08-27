@@ -23,12 +23,12 @@ inline uint16_t convert_to_force(float gram_val) {
 
 // -------- HX711 引脚定义（3 路独立 HX711） --------
 // 每路 HX711 需要 DOUT（数据）和 SCK（时钟）两根线
-#define HX711_1_DOUT_PIN  16  // 对应 HX711 #1 DOUT
-#define HX711_1_SCK_PIN   17  // 对应 HX711 #1 SCK
-#define HX711_2_DOUT_PIN  14  // 对应 HX711 #2 DOUT
-#define HX711_2_SCK_PIN   27  // 对应 HX711 #2 SCK
+#define HX711_1_DOUT_PIN  23  // 对应 HX711 #1 DOUT
+#define HX711_1_SCK_PIN   22  // 对应 HX711 #1 SCK
+#define HX711_2_DOUT_PIN  32  // 对应 HX711 #2 DOUT
+#define HX711_2_SCK_PIN   33  // 对应 HX711 #2 SCK
 #define HX711_3_DOUT_PIN  26  // 对应 HX711 #3 DOUT
-#define HX711_3_SCK_PIN   25  // 对应 HX711 #3 SCK
+#define HX711_3_SCK_PIN   27  // 对应 HX711 #3 SCK
 
 // -------- LED 状态指示灯引脚 --------
 #define LED_PIN_B        2
