@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <Arduino.h>
 
@@ -15,16 +15,19 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 :root{--bg:#0b0f19;--card:rgba(22,30,49,.85);--border:rgba(255,255,255,.08);--text:#f1f5f9;--muted:#64748b;--blue:#38bdf8;--cyan:#06b6d4;--green:#10b981;--red:#f43f5e;--yellow:#f59e0b;--nav:rgba(17,24,39,.97)}
 *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center}
-header{width:100%;background:var(--nav);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-header h1{font-size:1.1rem;font-weight:700;background:linear-gradient(90deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.dots{display:flex;gap:1rem;font-size:.78rem}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:var(--muted)}
-.dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
-.dot.off{background:var(--red)}
-nav{display:flex;width:100%;max-width:860px;margin-top:1.5rem;border-bottom:1px solid var(--border)}
-nav button{flex:1;padding:.7rem 0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem;border-bottom:2px solid transparent;transition:all .2s}
-nav button.active{color:var(--blue);border-bottom-color:var(--blue)}
-nav button:hover:not(.active){color:var(--text)}
+header{width:100%;background:var(--nav);border-bottom:1px solid var(--border);padding:.85rem 1.5rem;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+.header-main{max-width:860px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;width:100%}
+.logo{font-size:1.15rem;font-weight:700;letter-spacing:.5px;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.status-dots{display:flex;gap:.75rem;align-items:center;font-size:.8rem;color:var(--muted);background:rgba(0,0,0,.3);padding:.3rem .65rem;border-radius:20px;border:1px solid var(--border)}
+.status-indicator{display:flex;align-items:center;gap:.35rem}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748B;transition:all .3s ease}
+.dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.off{background:var(--red);box-shadow:0 0 4px var(--red)}
+.nav-tabs{display:flex;width:100%;background-color:var(--card);border:1px solid var(--border);border-radius:12px;padding:.3rem;margin-bottom:1.25rem;gap:.3rem}
+.tab-item{flex:1;text-align:center;padding:.65rem .5rem;font-size:.88rem;font-weight:600;color:var(--muted);border-radius:8px;cursor:pointer;transition:all .2s ease;user-select:none}
+.tab-item:hover{color:var(--text)}
+.tab-item.active{background:linear-gradient(135deg,rgba(56,189,248,.18),rgba(6,182,212,.18));color:var(--blue);border:1px solid rgba(56,189,248,.35)}
+.footer{text-align:center;font-size:.78rem;color:var(--muted);margin-top:1.5rem;border-top:1px solid var(--border);padding-top:1rem;line-height:1.8}
 main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
 .tab-panel{display:none}.tab-panel.active{display:block}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.2rem 1.4rem;margin-bottom:1rem;backdrop-filter:blur(12px)}
@@ -72,18 +75,20 @@ main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
 </head>
 <body>
 <header>
-  <h1>&#9878; HX711 Force Sensor Monitor</h1>
-  <div class="dots">
-    <span><span class="dot" id="dot-wifi"></span>WiFi</span>
-    <span><span class="dot" id="dot-mqtt"></span>MQTT</span>
+  <div class="header-main">
+    <div class="logo">⚖ HX711 力传感器节点</div>
+    <div class="status-dots">
+      <span class="status-indicator"><span class="dot" id="dot-wifi"></span>WiFi</span>
+      <span class="status-indicator"><span class="dot" id="dot-mqtt"></span>MQTT</span>
+    </div>
   </div>
 </header>
-<nav>
-  <button class="active" onclick="showTab('monitor',this)">&#128202; Monitor</button>
-  <button onclick="showTab('calibrate',this)">&#128295; Calibrate</button>
-  <button onclick="showTab('network',this)">&#128225; Network</button>
-</nav>
 <main>
+  <nav class="nav-tabs">
+    <div class="tab-item active" onclick="showTab('monitor',this)">实时监控</div>
+    <div class="tab-item" onclick="showTab('calibrate',this)">传感器标定</div>
+    <div class="tab-item" onclick="showTab('network',this)">网络与系统</div>
+  </nav>
   <div id="tab-monitor" class="tab-panel active">
     <div class="sensor-grid" id="sg"></div>
   </div>
@@ -137,12 +142,16 @@ main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
       <div class="wifi-list" id="wifi-list"></div>
     </div>
   </div>
+  <div class="footer">
+    <p>版本: Version 2.0</p>
+    <p>版权所有: 山东卷积分公司</p>
+  </div>
 </main>
 <div id="toast"></div>
 <script>
 function showTab(id,btn){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
   btn.classList.add('active');
   if(id==='calibrate')loadCalStatus();
