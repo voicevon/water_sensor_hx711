@@ -35,14 +35,13 @@ static void print_wifi_status(const char* label) {
 //  REST API 处理函数
 // ============================================================
 
-// GET /api/data — 返回 3 路实时力传感数据
+// GET /api/data — 返回 3 路实时传感器数据（16 位无符号原始计数）
 static void handle_get_data() {
     String json = "{\"sensors\":[";
     for (int i = 0; i < 3; i++) {
         const SensorDataCache& s = data_cache_get_sensor(i);
         json += "{";
-        json += "\"raw_val\":"   + String(convert_to_force(s.raw_val)) + ",";
-        json += "\"raw_gram\":"  + String(s.raw_val, 2) + ",";     // 克力原始值（保留2位小数）
+        json += "\"raw_val\":"   + String(s.raw_val) + ",";
         json += "\"filtered\":"  + String(s.filtered) + ",";
         json += "\"baseline\":"  + String(s.baseline) + ",";
         json += "\"threshold\":" + String(s.threshold) + ",";
@@ -65,23 +64,37 @@ static void handle_get_data() {
     s_server.send(200, "application/json", json);
 }
 
+// JSON 字符串转义：防止值中含 " \ 或控制字符破坏 JSON 结构
+static String json_escape(const String& s) {
+    String out;
+    out.reserve(s.length() + 8);
+    for (unsigned int i = 0; i < s.length(); i++) {
+        char c = s[i];
+        if (c == '"' || c == '\\') { out += '\\'; out += c; }
+        else if ((unsigned char)c >= 0x20) out += c;
+    }
+    return out;
+}
+
 // GET /api/sysconfig — 返回网络与系统配置
 static void handle_get_sysconfig() {
     String json = "{";
-    json += "\"ssid\":\""   + get_sta_ssid() + "\",";
-    json += "\"pass\":\""   + get_sta_password() + "\",";
-    json += "\"name\":\""   + get_device_name() + "\",";
-    json += "\"broker\":\"" + get_mqtt_broker() + "\",";
+    json += "\"ssid\":\""   + json_escape(get_sta_ssid()) + "\",";
+    json += "\"pass\":\""   + json_escape(get_sta_password()) + "\",";
+    json += "\"name\":\""   + json_escape(get_device_name()) + "\",";
+    json += "\"broker\":\"" + json_escape(get_mqtt_broker()) + "\",";
     json += "\"port\":"     + String(get_mqtt_port());
     json += "}";
     s_server.send(200, "application/json", json);
 }
 
 // POST /api/sysconfig — 保存网络配置到 NVS
+// 注意：password 为空时不更新（前端不回显密码，留空表示保持不变）
 static void handle_post_sysconfig() {
     bool changed = false;
     if (s_server.hasArg("ssid"))     changed |= nvs_set_sta_ssid(s_server.arg("ssid"));
-    if (s_server.hasArg("password")) changed |= nvs_set_sta_password(s_server.arg("password"));
+    if (s_server.hasArg("password") && s_server.arg("password").length() > 0)
+                                     changed |= nvs_set_sta_password(s_server.arg("password"));
     if (s_server.hasArg("name"))     changed |= nvs_set_device_name(s_server.arg("name"));
     if (s_server.hasArg("broker"))   changed |= nvs_set_mqtt_broker(s_server.arg("broker"));
     if (s_server.hasArg("port"))     changed |= nvs_set_mqtt_port(s_server.arg("port").toInt());
@@ -111,7 +124,7 @@ static void handle_wifi_scan() {
         for (int i = 0; i < n; i++) {
             int idx = indices[i];
             json += "{";
-            json += "\"ssid\":\"" + WiFi.SSID(idx) + "\",";
+            json += "\"ssid\":\"" + json_escape(WiFi.SSID(idx)) + "\",";
             json += "\"rssi\":"   + String(WiFi.RSSI(idx));
             json += "}";
             if (i < n - 1) json += ",";
@@ -163,8 +176,8 @@ static void handle_post_algo() {
     s_server.send(200, "text/plain", "OK");
 }
 
-// POST /api/hx711 — HX711 在线校准（tare / scale / enable / disable）
-// 参数：ch=0~2, action=tare|scale|enable|disable, scale=<float>
+// POST /api/hx711 — HX711 通道配置（enable / disable / set_n）
+// 参数：ch=0~2, action=enable|disable|set_n, n=<0~8>
 static void handle_post_hx711() {
     if (!s_server.hasArg("ch") || !s_server.hasArg("action")) {
         s_server.send(400, "text/plain", "Missing ch or action");
@@ -176,25 +189,17 @@ static void handle_post_hx711() {
         return;
     }
     String action = s_server.arg("action");
-    if (action == "tare") {
-        if (!get_hx711_enabled(ch)) {
-            s_server.send(409, "text/plain", "Ch disabled, turn_on first");
+    if (action == "set_n") {
+        if (!s_server.hasArg("n")) {
+            s_server.send(400, "text/plain", "Missing n");
             return;
         }
-        HX711_Tare(ch, 10);
-        s_server.send(200, "text/plain", "Tare OK");
-    } else if (action == "scale") {
-        if (!s_server.hasArg("scale")) {
-            s_server.send(400, "text/plain", "Missing scale");
+        int n = s_server.arg("n").toInt();
+        if (!nvs_set_shift_n(n)) {
+            s_server.send(400, "text/plain", "n invalid (valid 0~8) or unchanged");
             return;
         }
-        float scale = s_server.arg("scale").toFloat();
-        if (scale == 0.0f) {
-            s_server.send(400, "text/plain", "scale=0 invalid");
-            return;
-        }
-        HX711_SetScale(ch, scale);
-        s_server.send(200, "text/plain", "Scale OK");
+        s_server.send(200, "text/plain", "N OK (reboot to take effect, thresholds reset)");
     } else if (action == "enable") {
         nvs_set_hx711_enabled(ch, true);
         s_server.send(200, "text/plain", "Enable OK (reboot to take effect)");
@@ -206,14 +211,12 @@ static void handle_post_hx711() {
     }
 }
 
-// GET /api/hx711 — 返回各通道 HX711 校准参数
+// GET /api/hx711 — 返回各通道 HX711 状态与移位参数 N
 static void handle_get_hx711() {
-    String json = "{\"channels\":[";
+    String json = "{\"shift_n\":" + String(get_shift_n()) + ",\"channels\":[";
     for (int i = 0; i < 3; i++) {
         json += "{";
         json += "\"ch\":" + String(i) + ",";
-        json += "\"scale\":" + String(get_hx711_scale(i), 4) + ",";
-        json += "\"tare\":" + String((long)get_hx711_tare(i)) + ",";
         json += "\"enabled\":" + String(get_hx711_enabled(i) ? "true" : "false") + ",";
         json += "\"online\":" + String(HX711_IsOnline(i) ? "true" : "false");
         json += "}";
@@ -270,7 +273,7 @@ void web_config_loop() {
 // ============================================================
 //  web_config.h 中声明的缓存更新接口（转发至 data_cache）
 // ============================================================
-void web_config_update_sensor(int idx, float raw_val, uint16_t filtered,
+void web_config_update_sensor(int idx, uint16_t raw_val, uint16_t filtered,
                                uint16_t baseline, uint16_t threshold, bool detected) {
     data_cache_update_sensor(idx, raw_val, filtered, baseline, threshold, detected);
 }

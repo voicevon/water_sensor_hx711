@@ -15,11 +15,14 @@ static const uint8_t s_sck_pins[3]  = { HX711_1_SCK_PIN,  HX711_2_SCK_PIN,  HX71
 // 各通道在线状态
 static bool s_online[3] = { false, false, false };
 
-// 上一次有效力值（读取失败时保持）
-static float s_last_grams[3] = { 0.0f, 0.0f, 0.0f };
+// 上一次有效读数（读取失败时保持）
+static uint16_t s_last_u16[3] = { 0, 0, 0 };
 
 // HX711 采集等待超时（毫秒）
 static const uint32_t HX711_READY_TIMEOUT_MS = 500;
+
+// 启动自检采样次数
+static const int HX711_SELFCHECK_SAMPLES = 5;
 
 /* ============================================================
  *  内部辅助：等待 HX711 就绪（非阻塞超时）
@@ -66,51 +69,46 @@ bool HX711_Init_All(void) {
             continue;
         }
 
-        // 从 NVS 加载校准参数
-        float scale  = get_hx711_scale(ch);
-        long  tare   = get_hx711_tare(ch);
-
-        s_hx711[ch].set_scale(scale);
-        s_hx711[ch].set_offset(tare);
-
+        // 无校准参数：直接使用原始值，不做去皮与克数换算
         s_online[ch] = true;
         online_count++;
-
-        Serial.printf("[HX711] Ch%d online. scale=%.4f, tare=%ld\n",
-                      ch + 1, scale, tare);
+        Serial.printf("[HX711] Ch%d online (raw mode, no tare/scale).\n", ch + 1);
     }
 
-    Serial.printf("[HX711] Init complete. %d/3 channels online.\n", online_count);
+    Serial.printf("[HX711] Init complete. %d/3 channels online. shift N=%d\n",
+                  online_count, get_shift_n());
     return (online_count > 0);
 }
 
 /* ============================================================ */
 
-bool HX711_Read_All(float* out_grams) {
+bool HX711_Read_All(uint16_t* out_u16) {
     bool any_ok = false;
+    uint8_t shift_n = get_shift_n();
 
     for (int ch = 0; ch < 3; ch++) {
         // 通道已关闭，输出 0 并跳过
         if (!get_hx711_enabled(ch)) {
-            out_grams[ch] = 0.0f;
+            out_u16[ch] = 0;
             continue;
         }
 
         if (!s_online[ch]) {
-            out_grams[ch] = 0.0f;
+            out_u16[ch] = 0;
             continue;
         }
 
         if (!wait_ready(ch)) {
             Serial.printf("[HX711] Ch%d read timeout, using last value.\n", ch + 1);
-            out_grams[ch] = s_last_grams[ch];
+            out_u16[ch] = s_last_u16[ch];
             continue;
         }
 
-        // get_units() 已应用 scale 和 offset，返回克力
-        float val = s_hx711[ch].get_units(1);
-        s_last_grams[ch] = val;
-        out_grams[ch]    = val;
+        // 直接取 24 位原始值，立即按两步公式转换为 uint16_t
+        long raw = s_hx711[ch].read();
+        uint16_t val = hx711_raw_to_u16((int32_t)raw, shift_n);
+        s_last_u16[ch] = val;
+        out_u16[ch]    = val;
         any_ok = true;
     }
 
@@ -119,36 +117,38 @@ bool HX711_Read_All(float* out_grams) {
 
 /* ============================================================ */
 
-void HX711_Tare(int ch, int times) {
-    if (ch < 0 || ch >= 3 || !s_online[ch]) return;
+void HX711_SelfCheckBaseline(void) {
+    uint8_t shift_n = get_shift_n();
+    Serial.printf("[HX711] Self-check: baseline valid range %d~%d (N=%d)\n",
+                  HX711_BASELINE_CHECK_LOW, HX711_BASELINE_CHECK_HIGH, shift_n);
 
-    Serial.printf("[HX711] Taring Ch%d (%d samples)...\n", ch + 1, times);
+    for (int ch = 0; ch < 3; ch++) {
+        if (!s_online[ch]) continue;
 
-    if (!wait_ready(ch)) {
-        Serial.printf("[HX711] Ch%d not ready for tare.\n", ch + 1);
-        return;
+        uint32_t sum = 0;
+        int ok_count = 0;
+        for (int k = 0; k < HX711_SELFCHECK_SAMPLES; k++) {
+            if (wait_ready(ch)) {
+                sum += (uint32_t)hx711_raw_to_u16((int32_t)s_hx711[ch].read(), shift_n);
+                ok_count++;
+            }
+        }
+        if (ok_count == 0) {
+            Serial.printf("[HX711] Ch%d self-check: no samples.\n", ch + 1);
+            continue;
+        }
+
+        uint16_t baseline = (uint16_t)(sum / ok_count);
+        Serial.printf("[HX711] Ch%d baseline = %u (%d samples)\n",
+                      ch + 1, baseline, ok_count);
+
+        if (baseline < HX711_BASELINE_CHECK_LOW || baseline > HX711_BASELINE_CHECK_HIGH) {
+            Serial.printf("[HX711] WARNING: Ch%d baseline %u out of range [%d, %d]!\n",
+                          ch + 1, baseline, HX711_BASELINE_CHECK_LOW, HX711_BASELINE_CHECK_HIGH);
+            Serial.printf("[HX711] Current N=%d does not match actual zero offset. "
+                          "Adjust N in web config and reboot.\n", shift_n);
+        }
     }
-
-    s_hx711[ch].tare(times);
-    long new_offset = s_hx711[ch].get_offset();
-
-    // 持久化到 NVS
-    nvs_set_hx711_tare(ch, new_offset);
-
-    Serial.printf("[HX711] Ch%d tare done. new_offset=%ld\n", ch + 1, new_offset);
-}
-
-/* ============================================================ */
-
-void HX711_SetScale(int ch, float scale) {
-    if (ch < 0 || ch >= 3) return;
-
-    s_hx711[ch].set_scale(scale);
-
-    // 持久化到 NVS
-    nvs_set_hx711_scale(ch, scale);
-
-    Serial.printf("[HX711] Ch%d scale set to %.4f\n", ch + 1, scale);
 }
 
 /* ============================================================ */

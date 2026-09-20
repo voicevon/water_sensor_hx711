@@ -51,7 +51,7 @@ void setup() {
     // 2. 启动 Web 配置服务器（内部会先调 nvs_config_init 加载 NVS）
     web_config_init();
 
-    // 3. 初始化 HX711 传感器（校准参数已由 nvs_config_init 加载）
+    // 3. 初始化 HX711 传感器（无校准/去皮参数，直接原始值模式）
     bool hx711_ok = HX711_Init_All();
     if (!hx711_ok) {
         Serial.println("[ERROR] HX711 Init Failed! Check wiring. Flashing LED B...");
@@ -61,7 +61,10 @@ void setup() {
         }
     }
 
-    // 4. 从 NVS 恢复 3 路 Sensor 状态机参数
+    // 4. 启动自检：基线超出 8192~57344 时串口告警（N 与实际零偏不匹配）
+    HX711_SelfCheckBaseline();
+
+    // 5. 从 NVS 恢复 3 路 Sensor 状态机参数
     for (int i = 0; i < 3; i++) {
         s_sensors[i].setThresholdOffset(get_channel_threshold(i));
         s_sensors[i].setAlgoType((AlgoType)get_algo_type(i));
@@ -73,7 +76,7 @@ void setup() {
         s_sensors[i].setEnvLowerOffset(get_env_lower_offset(i));
     }
 
-    // 5. 启动网络通信与 BLE 广播
+    // 6. 启动网络通信与 BLE 广播
     wifi_mqtt_init();
     ble_init();
 }
@@ -123,14 +126,14 @@ void loop() {
     if (now - s_last_send_time >= SEND_INTERVAL_MS) {
         s_last_send_time = now;
 
-        // 1. 读取 3 路 HX711 力值
-        float all_grams[3] = { 0.0f, 0.0f, 0.0f };
-        bool read_ok = HX711_Read_All(all_grams);
+        // 1. 读取 3 路 HX711 原始计数（uint16_t，已按 N 缩放）
+        uint16_t all_raw[3] = { 0, 0, 0 };
+        bool read_ok = HX711_Read_All(all_raw);
 
         if (!read_ok) {
             Serial.println("[main] Warning: HX711 Read all channels failed!");
         } else {
-            // 2. 将力值馈入 3 路 Sensor 状态机，并同步给 Web config 缓存
+            // 2. 将原始计数馈入 3 路 Sensor 状态机，并同步给 Web config 缓存
             for (int i = 0; i < 3; i++) {
                 // 实时应用网页端配置
                 s_sensors[i].setThresholdOffset(get_channel_threshold(i));
@@ -142,12 +145,10 @@ void loop() {
                 s_sensors[i].setEnvUpperOffset(get_env_upper_offset(i));
                 s_sensors[i].setEnvLowerOffset(get_env_lower_offset(i));
 
-                // convert_to_force: 克力 → uint16_t（0.1g 单位）
-                uint16_t raw_val = convert_to_force(all_grams[i]);
-                s_sensors[i].pushRaw(raw_val);
+                s_sensors[i].pushRaw(all_raw[i]);
 
                 web_config_update_sensor(i,
-                    all_grams[i],
+                    all_raw[i],
                     s_sensors[i].getFiltered(),
                     s_sensors[i].getBaseline(),
                     s_sensors[i].getThreshold(),
@@ -161,7 +162,7 @@ void loop() {
             bool     out_states[SENSOR_COUNT]  = { false, false, false };
 
             for (int i = 0; i < SENSOR_COUNT; i++) {
-                out_sensors[i] = convert_to_force(all_grams[i]);
+                out_sensors[i] = all_raw[i];
                 out_states[i]  = s_sensors[i].isDetected();
             }
 
@@ -184,12 +185,11 @@ void loop() {
 
             // 5. 本地串口诊断日志
             Serial.println("----------------------------------------");
-            Serial.println("CH  RAW(g)    RAW_U16  FILTERED BASELINE THRESHOLD  STATE");
+            Serial.println("CH  RAW_U16  FILTERED BASELINE THRESHOLD  STATE");
             for (int i = 0; i < 3; i++) {
-                Serial.printf("  %d  %8.2f  %-7u  %-8u %-8u %-9u  %s\n",
+                Serial.printf("  %d  %-7u  %-8u %-8u %-9u  %s\n",
                               i,
-                              all_grams[i],
-                              convert_to_force(all_grams[i]),
+                              all_raw[i],
                               s_sensors[i].getFiltered(),
                               s_sensors[i].getBaseline(),
                               s_sensors[i].getThreshold(),
