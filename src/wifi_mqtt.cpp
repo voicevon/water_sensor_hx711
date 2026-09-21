@@ -41,6 +41,7 @@ static std::atomic<bool>    s_mqtt_connecting(false);
 static unsigned long        s_last_dns_resolve_ms = 0;
 static unsigned long        s_last_mqtt_reconnect_attempt = 0;
 static unsigned long        s_last_wifi_reconnect_attempt = 0;
+static uint8_t              s_wifi_fail_count = 0;   // STA 连续失败计数（退避用）
 
 static bool                 s_mqtt_send_enabled = false;
 
@@ -184,6 +185,9 @@ void wifi_mqtt_init() {
 
     // 保持 AP_STA 模式，确保 Web 配置后台热点不被关闭
     WiFi.mode(WIFI_AP_STA);
+    // 关闭 SDK 内部自动重连：其后台高频全信道扫描会占用射频，
+    // 导致 AP beacon 缺帧、电脑扫不到热点。重连节奏由 wifi_mqtt_loop 控制
+    WiFi.setAutoReconnect(false);
     WiFi.begin(target_ssid.c_str(), target_pass.c_str());
 
     // 阻塞等待连接，最多 20 次 × 500ms = 10s
@@ -222,16 +226,23 @@ void wifi_mqtt_init() {
 //  主循环中非阻塞维持 WiFi 与 MQTT 心跳
 // ============================================================
 void wifi_mqtt_loop(unsigned long current_time) {
-    // 1. 维护 WiFi 自动重连
+    // 1. 维护 WiFi 自动重连（指数退避：失败越多间隔越长，
+    //    退避窗口内射频安静，保证 AP 热点稳定广播可被扫描）
     if (WiFi.status() != WL_CONNECTED) {
-        if (current_time - s_last_wifi_reconnect_attempt >= 20000UL) {
+        uint8_t shift = s_wifi_fail_count < WIFI_RECONNECT_BACKOFF_MAX_SHIFT
+                        ? s_wifi_fail_count : WIFI_RECONNECT_BACKOFF_MAX_SHIFT;
+        unsigned long interval = WIFI_RECONNECT_BASE_MS << shift;
+        if (current_time - s_last_wifi_reconnect_attempt >= interval) {
             s_last_wifi_reconnect_attempt = current_time;
-            Serial.println("[WiFi] Disconnected. Reconnecting...");
+            s_wifi_fail_count++;
+            Serial.printf("[WiFi] Disconnected. Reconnecting (fail=%u, next in %lus)...\n",
+                          s_wifi_fail_count, interval / 1000UL);
             WiFi.begin(get_sta_ssid().c_str(), get_sta_password().c_str());
         }
         return;
     } else {
         s_last_wifi_reconnect_attempt = current_time;
+        s_wifi_fail_count = 0;
     }
 
     // 2. 关键避让：后台连接任务执行期间，主线程直接退出，绝不触碰 s_mqttClient
