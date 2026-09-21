@@ -20,11 +20,7 @@ bool nvs_set_device_name(const String& val);
 bool nvs_set_mqtt_broker(const String& val);
 bool nvs_set_mqtt_port(int val);
 
-// ---- HX711 通道开关（ch: 0-2）----
-bool  nvs_set_hx711_enabled(int ch, bool enabled); // 开关（turn_on / turn_off）
-bool  get_hx711_enabled(int ch);                   // 默认 true（开启）
-
-// ---- 数据转换移位位数 N（合法 0~8，默认 6）----
+// ---- 数据转换移位位数 N（全局参数，三通道共享；合法 0~8，默认 6）----
 // 非法写入拒绝；N 修改视为版本变更，阈值类参数恢复默认（需现场重新标定）；
 // 修改后重启生效。
 bool nvs_set_shift_n(int n);

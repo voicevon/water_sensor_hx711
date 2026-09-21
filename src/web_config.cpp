@@ -176,48 +176,27 @@ static void handle_post_algo() {
     s_server.send(200, "text/plain", "OK");
 }
 
-// POST /api/hx711 — HX711 通道配置（enable / disable / set_n）
-// 参数：ch=0~2, action=enable|disable|set_n, n=<0~8>
+// POST /api/hx711 — 设置移位位数 N（全局参数，三通道共享）
+// 参数：n=<0~8>，重启生效，N 变更时阈值类参数恢复默认
 static void handle_post_hx711() {
-    if (!s_server.hasArg("ch") || !s_server.hasArg("action")) {
-        s_server.send(400, "text/plain", "Missing ch or action");
+    if (!s_server.hasArg("n")) {
+        s_server.send(400, "text/plain", "Missing n");
         return;
     }
-    int ch = s_server.arg("ch").toInt();
-    if (ch < 0 || ch >= 3) {
-        s_server.send(400, "text/plain", "Invalid ch");
+    int n = s_server.arg("n").toInt();
+    if (!nvs_set_shift_n(n)) {
+        s_server.send(400, "text/plain", "n invalid (valid 0~8) or unchanged");
         return;
     }
-    String action = s_server.arg("action");
-    if (action == "set_n") {
-        if (!s_server.hasArg("n")) {
-            s_server.send(400, "text/plain", "Missing n");
-            return;
-        }
-        int n = s_server.arg("n").toInt();
-        if (!nvs_set_shift_n(n)) {
-            s_server.send(400, "text/plain", "n invalid (valid 0~8) or unchanged");
-            return;
-        }
-        s_server.send(200, "text/plain", "N OK (reboot to take effect, thresholds reset)");
-    } else if (action == "enable") {
-        nvs_set_hx711_enabled(ch, true);
-        s_server.send(200, "text/plain", "Enable OK (reboot to take effect)");
-    } else if (action == "disable") {
-        nvs_set_hx711_enabled(ch, false);
-        s_server.send(200, "text/plain", "Disable OK (reboot to take effect)");
-    } else {
-        s_server.send(400, "text/plain", "Unknown action");
-    }
+    s_server.send(200, "text/plain", "N OK (reboot to take effect, thresholds reset)");
 }
 
-// GET /api/hx711 — 返回各通道 HX711 状态与移位参数 N
+// GET /api/hx711 — 返回移位参数 N 与各通道在线状态
 static void handle_get_hx711() {
     String json = "{\"shift_n\":" + String(get_shift_n()) + ",\"channels\":[";
     for (int i = 0; i < 3; i++) {
         json += "{";
         json += "\"ch\":" + String(i) + ",";
-        json += "\"enabled\":" + String(get_hx711_enabled(i) ? "true" : "false") + ",";
         json += "\"online\":" + String(HX711_IsOnline(i) ? "true" : "false");
         json += "}";
         if (i < 2) json += ",";

@@ -54,14 +54,7 @@ bool HX711_Init_All(void) {
     for (int ch = 0; ch < 3; ch++) {
         s_hx711[ch].begin(s_dout_pins[ch], s_sck_pins[ch]);
 
-        // 通道已被用户禁用（disable），跳过初始化
-        if (!get_hx711_enabled(ch)) {
-            Serial.printf("[HX711] Ch%d DISABLED, skipping init.\n", ch + 1);
-            s_online[ch] = false;
-            continue;
-        }
-
-        // 等待 HX711 就绪（最多 500ms）
+        // 等待 HX711 就绪（最多 500ms）；未接线/损坏的通道自动标记离线
         if (!wait_ready(ch)) {
             Serial.printf("[HX711] Ch%d not ready (DOUT=%d, SCK=%d), skipping.\n",
                           ch + 1, s_dout_pins[ch], s_sck_pins[ch]);
@@ -87,12 +80,7 @@ bool HX711_Read_All(uint16_t* out_u16) {
     uint8_t shift_n = get_shift_n();
 
     for (int ch = 0; ch < 3; ch++) {
-        // 通道已关闭，输出 0 并跳过
-        if (!get_hx711_enabled(ch)) {
-            out_u16[ch] = 0;
-            continue;
-        }
-
+        // 离线通道输出 0 并跳过
         if (!s_online[ch]) {
             out_u16[ch] = 0;
             continue;

@@ -51,7 +51,7 @@ CompanyID(2B, 0xFFFF 小端) + 传感器1~3(各2B, u16 大端) + StateByte(1B) +
 上电后开放热点 `AP_HX711`（密码 12344321），浏览器访问 `192.168.4.1`：
 
 - 实时监控：3 路原始计数、滤波值、基线、阈值与触发状态
-- 通道配置：通道开关、移位位数 N（0~8）
+- 参数设置：移位位数 N（0~8，全局参数，三通道共享）
 - 网络与系统：STA WiFi、设备名、MQTT Broker 地址与端口
 
 主要 REST API：
@@ -59,7 +59,7 @@ CompanyID(2B, 0xFFFF 小端) + 传感器1~3(各2B, u16 大端) + StateByte(1B) +
 | 接口 | 方法 | 说明 |
 |------|------|------|
 | `/api/data` | GET | 3 路实时数据 |
-| `/api/hx711` | GET/POST | 通道状态 / 通道开关、设置 N |
+| `/api/hx711` | GET/POST | 在线状态与当前 N / 设置 N |
 | `/api/threshold` | POST | 阈值偏移量 |
 | `/api/algo` | POST | 算法类型与参数 |
 | `/api/sysconfig` | GET/POST | 网络与系统配置 |

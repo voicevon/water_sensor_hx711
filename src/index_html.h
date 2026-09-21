@@ -86,7 +86,7 @@ main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
 <main>
   <nav class="nav-tabs">
     <div class="tab-item active" onclick="showTab('monitor',this)">实时监控</div>
-    <div class="tab-item" onclick="showTab('calibrate',this)">传感器标定</div>
+    <div class="tab-item" onclick="showTab('calibrate',this)">参数设置</div>
     <div class="tab-item" onclick="showTab('network',this)">网络与系统</div>
   </nav>
   <div id="tab-monitor" class="tab-panel active">
@@ -94,22 +94,8 @@ main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
   </div>
   <div id="tab-calibrate" class="tab-panel">
     <div class="card">
-      <div class="card-title">HX711 Channel Configuration</div>
-      <div class="fg"><label>Channel</label>
-        <select id="cal-ch">
-          <option value="0">HX711 #1</option>
-          <option value="1">HX711 #2</option>
-          <option value="2">HX711 #3</option>
-        </select>
-      </div>
-      <p class="sec">Channel Switch</p>
-      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Changes take effect after reboot.</p>
-      <div class="btn-row">
-        <button class="btn success" onclick="doEnable()">Enable</button>
-        <button class="btn danger"  onclick="doDisable()">Disable</button>
-      </div>
-      <p class="sec" style="margin-top:1.4rem">Shift N (Data Conversion)</p>
-      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Valid 0~8. 1 LSB = 2^N raw counts. Changing N resets all thresholds. Reboot to take effect.</p>
+      <div class="card-title">Shift N (Data Conversion)</div>
+      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Global parameter shared by all 3 channels. Valid 0~8, 1 LSB = 2^N raw counts. Changing N resets all thresholds. Reboot to take effect.</p>
       <div class="fg"><label>Shift N</label><input type="number" id="cal-n" placeholder="0~8" min="0" max="8" step="1"></div>
       <button class="btn primary" onclick="doSetN()">Write Shift N</button>
     </div>
@@ -205,31 +191,19 @@ async function loadCalStatus(){
     document.getElementById('cal-n').value=d.shift_n;
     let h='';
     d.channels.forEach(c=>{
-      const en=c.enabled?'<span style="color:var(--green)">Enabled</span>':'<span style="color:var(--red)">Disabled</span>';
       const ol=c.online?'<span style="color:var(--green)">Online</span>':'<span style="color:var(--muted)">Offline</span>';
       h+='<div style="padding:.6rem 0;border-bottom:1px solid var(--border)">'+
-         '<strong>HX711 #'+(c.ch+1)+'</strong> &nbsp;'+en+' &nbsp;'+ol+'</div>';
+         '<strong>HX711 #'+(c.ch+1)+'</strong> &nbsp;'+ol+'</div>';
     });
     h+='<div style="padding:.6rem 0"><span style="font-size:.82rem;color:var(--muted)">Shift N: <b>'+d.shift_n+'</b> (1 LSB = '+(1<<d.shift_n)+' raw counts)</span></div>';
     document.getElementById('cal-status').innerHTML=h;
   }catch(e){document.getElementById('cal-status').textContent='Load failed';}
 }
-function calCh(){return document.getElementById('cal-ch').value;}
 async function doSetN(){
   const n=document.getElementById('cal-n').value;
   if(n===''||n<0||n>8){toast('N must be 0~8','err');return;}
-  try{const msg=await post('/api/hx711',{ch:0,action:'set_n',n});toast(msg);loadCalStatus();}
+  try{const msg=await post('/api/hx711',{n:n});toast(msg);loadCalStatus();}
   catch(e){toast('Failed: '+e.message,'err');}
-}
-async function doEnable(){
-  try{await post('/api/hx711',{ch:calCh(),action:'enable'});toast('Enabled (reboot to apply)');}
-  catch(e){toast('Failed: '+e.message,'err');}
-  loadCalStatus();
-}
-async function doDisable(){
-  try{await post('/api/hx711',{ch:calCh(),action:'disable'});toast('Disabled (reboot to apply)','err');}
-  catch(e){toast('Failed: '+e.message,'err');}
-  loadCalStatus();
 }
 async function loadNetwork(){
   try{

@@ -30,11 +30,7 @@ static String s_device_name  = "";
 static String s_mqtt_broker  = "";
 static int    s_mqtt_port    = 1883;
 
-// ---- HX711 通道开关缓存（3路） ----
-// enabled: 通道开关，默认 true（开启）
-static bool  s_hx711_enabled[3] = { true, true, true };
-
-// ---- 数据转换移位位数 N（合法 0~8，默认 6） ----
+// ---- 数据转换移位位数 N（全局参数，三通道共享；合法 0~8，默认 6） ----
 static int s_shift_n = HX711_SHIFT_N_DEFAULT;
 
 // ---- 阈值偏移量（3路，默认 50） ----
@@ -77,7 +73,7 @@ void nvs_config_init() {
     s_prefs.begin(NVS_NAMESPACE, false);
 
     // 参数版本检查：检测到旧版本参数（或首次使用）时重置为默认值，
-    // 并清理已废弃的旧版校准键（sc*/tr*）
+    // 并清理已废弃的旧版键（sc*/tr*/en*）
     uint8_t stored_ver = s_prefs.getUChar(NVS_KEY_PARAM_VER, 0);
     if (stored_ver != PARAM_VERSION) {
         Serial.printf("[NvsConfig] Param version %u != %u, resetting params to defaults.\n",
@@ -86,6 +82,7 @@ void nvs_config_init() {
         for (int i = 0; i < 3; i++) {
             s_prefs.remove(("sc" + String(i)).c_str());
             s_prefs.remove(("tr" + String(i)).c_str());
+            s_prefs.remove(("en" + String(i)).c_str());
         }
         s_prefs.putUChar(NVS_KEY_PARAM_VER, PARAM_VERSION);
     }
@@ -96,11 +93,6 @@ void nvs_config_init() {
         Serial.printf("[NvsConfig] Invalid shift_n=%d in NVS, fallback to default %d\n",
                       s_shift_n, HX711_SHIFT_N_DEFAULT);
         s_shift_n = HX711_SHIFT_N_DEFAULT;
-    }
-
-    // 加载 3 路通道开关
-    for (int i = 0; i < 3; i++) {
-        s_hx711_enabled[i] = s_prefs.getBool(("en" + String(i)).c_str(), true);
     }
 
     // 加载 3 路阈值与算法参数
@@ -124,8 +116,6 @@ void nvs_config_init() {
 
     Serial.printf("[NvsConfig] Shift N: %d (1 LSB = %d raw counts)\n",
                   s_shift_n, 1 << s_shift_n);
-    Serial.printf("[NvsConfig] HX711 enabled: %d / %d / %d\n",
-                  s_hx711_enabled[0], s_hx711_enabled[1], s_hx711_enabled[2]);
     Serial.printf("[NvsConfig] WiFi STA: %s, Device: %s, MQTT: %s:%d\n",
                   s_sta_ssid.c_str(), s_device_name.c_str(),
                   s_mqtt_broker.c_str(), s_mqtt_port);
@@ -139,8 +129,6 @@ String get_sta_password()             { return s_sta_password; }
 String get_device_name()              { return s_device_name; }
 String get_mqtt_broker()              { return s_mqtt_broker; }
 int    get_mqtt_port()                { return s_mqtt_port; }
-
-bool   get_hx711_enabled(int ch)      { return (ch >= 0 && ch < 3) ? s_hx711_enabled[ch] : true; }
 
 int    get_shift_n()                  { return s_shift_n; }
 
@@ -188,15 +176,6 @@ bool nvs_set_mqtt_port(int val) {
     if (val <= 0 || val == s_mqtt_port) return false;
     s_mqtt_port = val;
     s_prefs.putInt(NVS_KEY_PORT, val);
-    return true;
-}
-
-bool nvs_set_hx711_enabled(int ch, bool enabled) {
-    if (ch < 0 || ch >= 3) return false;
-    if (s_hx711_enabled[ch] == enabled) return false;
-    s_hx711_enabled[ch] = enabled;
-    s_prefs.putBool(("en" + String(ch)).c_str(), enabled);
-    Serial.printf("[NvsConfig] HX711 Ch%d %s\n", ch + 1, enabled ? "ENABLED" : "DISABLED");
     return true;
 }
 
