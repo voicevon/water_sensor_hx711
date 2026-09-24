@@ -15,13 +15,13 @@ void web_config_loop();
 /**
  * @brief 更新指定通道的实时传感器数据，供网页 /api/data 查询
  * @param idx  通道索引（0-2）
- * @param raw_val    HX711 原始克力值（g）
- * @param filtered   滤波后值（uint16_t，0.1g 单位）
+ * @param raw_val    缩放后原始计数（uint16_t，1 LSB = 2^N 原始 ADC 计数）
+ * @param filtered   滤波后值（uint16_t）
  * @param baseline   基准值（uint16_t）
  * @param threshold  触发阈值（uint16_t）
  * @param detected   是否触发检测
  */
-void web_config_update_sensor(int idx, float raw_val, uint16_t filtered,
+void web_config_update_sensor(int idx, uint16_t raw_val, uint16_t filtered,
                                uint16_t baseline, uint16_t threshold, bool detected);
 
 /**

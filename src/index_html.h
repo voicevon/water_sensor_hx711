@@ -86,7 +86,7 @@ main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
 <main>
   <nav class="nav-tabs">
     <div class="tab-item active" onclick="showTab('monitor',this)">实时监控</div>
-    <div class="tab-item" onclick="showTab('calibrate',this)">传感器标定</div>
+    <div class="tab-item" onclick="showTab('calibrate',this)">参数设置</div>
     <div class="tab-item" onclick="showTab('network',this)">网络与系统</div>
   </nav>
   <div id="tab-monitor" class="tab-panel active">
@@ -94,33 +94,13 @@ main{width:100%;max-width:860px;padding:1.5rem 1rem 3rem}
   </div>
   <div id="tab-calibrate" class="tab-panel">
     <div class="card">
-      <div class="card-title">HX711 Channel Calibration</div>
-      <div class="fg"><label>Channel</label>
-        <select id="cal-ch">
-          <option value="0">HX711 #1</option>
-          <option value="1">HX711 #2</option>
-          <option value="2">HX711 #3</option>
-        </select>
-      </div>
-      <p class="sec">Tare (Zero)</p>
-      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Remove all load, then click tare.</p>
-      <button class="btn primary" onclick="doTare()">Tare (10 samples)</button>
-      <p class="sec" style="margin-top:1.4rem">Scale Calibration</p>
-      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Place known weight, then write scale value.</p>
-      <div class="form-row">
-        <div class="fg"><label>Known Weight (g)</label><input type="number" id="cal-known" placeholder="e.g. 500" min="1" step="0.1"></div>
-        <div class="fg"><label>Scale Value</label><input type="number" id="cal-scale" placeholder="e.g. 2280.5" step="0.001"></div>
-      </div>
-      <button class="btn primary" onclick="doScale()">Write Scale</button>
-      <p class="sec" style="margin-top:1.4rem">Channel Switch</p>
-      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Changes take effect after reboot.</p>
-      <div class="btn-row">
-        <button class="btn success" onclick="doEnable()">Enable</button>
-        <button class="btn danger"  onclick="doDisable()">Disable</button>
-      </div>
+      <div class="card-title">Shift N (Data Conversion)</div>
+      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.8rem">Global parameter shared by all 3 channels. Valid 0~8, 1 LSB = 2^N raw counts. Changing N resets all thresholds. Reboot to take effect.</p>
+      <div class="fg"><label>Shift N</label><input type="number" id="cal-n" placeholder="0~8" min="0" max="8" step="1"></div>
+      <button class="btn primary" onclick="doSetN()">Write Shift N</button>
     </div>
     <div class="card">
-      <div class="card-title">Current Calibration Status</div>
+      <div class="card-title">Current Status</div>
       <div id="cal-status">Loading...</div>
     </div>
   </div>
@@ -176,16 +156,17 @@ function buildCards(sensors){
         '<div class="sc" id="sc'+i+'">'+
         '<div class="sc-hdr"><span class="sc-name">HX711 #'+(i+1)+'</span>'+
         '<span class="badge idle" id="bd'+i+'">IDLE</span></div>'+
-        '<div class="force-val" id="fv'+i+'">--<span class="fu"> g</span></div>'+
-        '<div class="metric"><label>Filtered (x0.1g)</label><span id="fi'+i+'">--</span></div>'+
+        '<div class="force-val" id="fv'+i+'">--<span class="fu"> cnt</span></div>'+
+        '<div class="metric"><label>Raw Value (u16)</label><span id="rv'+i+'">--</span></div>'+
+        '<div class="metric"><label>Filtered</label><span id="fi'+i+'">--</span></div>'+
         '<div class="metric"><label>Baseline</label><span id="ba'+i+'">--</span></div>'+
         '<div class="metric"><label>Threshold</label><span id="th'+i+'">--</span></div>'+
         '</div>');
     });
   }
   sensors.forEach((s,i)=>{
-    const gram=(s.raw_val/10).toFixed(1);
-    document.getElementById('fv'+i).innerHTML=gram+'<span class="fu"> g</span>';
+    document.getElementById('fv'+i).innerHTML=s.raw_val+'<span class="fu"> cnt</span>';
+    document.getElementById('rv'+i).textContent=s.raw_val;
     document.getElementById('fi'+i).textContent=s.filtered;
     document.getElementById('ba'+i).textContent=s.baseline;
     document.getElementById('th'+i).textContent=s.threshold;
@@ -207,57 +188,46 @@ async function updateData(){
 async function loadCalStatus(){
   try{
     const r=await fetch('/api/hx711');const d=await r.json();
+    document.getElementById('cal-n').value=d.shift_n;
     let h='';
     d.channels.forEach(c=>{
-      const en=c.enabled?'<span style="color:var(--green)">Enabled</span>':'<span style="color:var(--red)">Disabled</span>';
       const ol=c.online?'<span style="color:var(--green)">Online</span>':'<span style="color:var(--muted)">Offline</span>';
       h+='<div style="padding:.6rem 0;border-bottom:1px solid var(--border)">'+
-         '<strong>HX711 #'+(c.ch+1)+'</strong> &nbsp;'+en+' &nbsp;'+ol+'<br>'+
-         '<span style="font-size:.82rem;color:var(--muted)">Scale: <b>'+c.scale.toFixed(4)+'</b> &nbsp;| Tare: <b>'+c.tare+'</b></span></div>';
+         '<strong>HX711 #'+(c.ch+1)+'</strong> &nbsp;'+ol+'</div>';
     });
+    h+='<div style="padding:.6rem 0"><span style="font-size:.82rem;color:var(--muted)">Shift N: <b>'+d.shift_n+'</b> (1 LSB = '+(1<<d.shift_n)+' raw counts)</span></div>';
     document.getElementById('cal-status').innerHTML=h;
   }catch(e){document.getElementById('cal-status').textContent='Load failed';}
 }
-function calCh(){return document.getElementById('cal-ch').value;}
-async function doTare(){
-  try{const msg=await post('/api/hx711',{ch:calCh(),action:'tare'});toast('Tare OK: '+msg);loadCalStatus();}
-  catch(e){toast('Tare failed: '+e.message,'err');}
-}
-async function doScale(){
-  const scale=document.getElementById('cal-scale').value;
-  if(!scale){toast('Enter scale value','err');return;}
-  try{await post('/api/hx711',{ch:calCh(),action:'scale',scale});toast('Scale written');loadCalStatus();}
+async function doSetN(){
+  const n=document.getElementById('cal-n').value;
+  if(n===''||n<0||n>8){toast('N must be 0~8','err');return;}
+  try{const msg=await post('/api/hx711',{n:n});toast(msg);loadCalStatus();}
   catch(e){toast('Failed: '+e.message,'err');}
-}
-async function doEnable(){
-  try{await post('/api/hx711',{ch:calCh(),action:'enable'});toast('Enabled (reboot to apply)');}
-  catch(e){toast('Failed: '+e.message,'err');}
-  loadCalStatus();
-}
-async function doDisable(){
-  try{await post('/api/hx711',{ch:calCh(),action:'disable'});toast('Disabled (reboot to apply)','err');}
-  catch(e){toast('Failed: '+e.message,'err');}
-  loadCalStatus();
 }
 async function loadNetwork(){
   try{
-    const r=await fetch('/api/sysconfig');const d=await r.json();
+    const r=await fetch('/api/sysconfig?t='+Date.now());const d=await r.json();
     document.getElementById('net-ssid').value=d.ssid||'';
-    document.getElementById('net-pass').value=d.pass||'';
     document.getElementById('net-name').value=d.name||'';
     document.getElementById('net-broker').value=d.broker||'';
     document.getElementById('net-port').value=d.port||1883;
-  }catch(e){}
+    const p=document.getElementById('net-pass');
+    p.value='';
+    p.placeholder='Leave blank = unchanged';
+  }catch(e){toast('Load config failed','err');}
 }
 async function saveNetwork(){
+  const params={
+    ssid:document.getElementById('net-ssid').value,
+    name:document.getElementById('net-name').value,
+    broker:document.getElementById('net-broker').value,
+    port:document.getElementById('net-port').value
+  };
+  const pw=document.getElementById('net-pass').value;
+  if(pw)params.password=pw;
   try{
-    await post('/api/sysconfig',{
-      ssid:document.getElementById('net-ssid').value,
-      password:document.getElementById('net-pass').value,
-      name:document.getElementById('net-name').value,
-      broker:document.getElementById('net-broker').value,
-      port:document.getElementById('net-port').value
-    });toast('Saved, reboot to apply');
+    await post('/api/sysconfig',params);toast('Saved, reboot to apply');
   }catch(e){toast('Save failed: '+e.message,'err');}
 }
 async function scanWifi(){

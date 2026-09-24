@@ -4,6 +4,7 @@
 
 /**
  * @brief 初始化 NVS 存储并加载所有配置项到内存缓存
+ *        含参数版本检查：检测到旧版本参数时重置为默认值
  *        由 web_config_init() 调用
  */
 void nvs_config_init();
@@ -19,13 +20,11 @@ bool nvs_set_device_name(const String& val);
 bool nvs_set_mqtt_broker(const String& val);
 bool nvs_set_mqtt_port(int val);
 
-// ---- HX711 校准参数（ch: 0-2）----
-bool  nvs_set_hx711_scale(int ch, float scale);  // 校准系数
-bool  nvs_set_hx711_tare(int ch, long offset);    // 去皮偏置（HX711 原始 ADC 单位）
-bool  nvs_set_hx711_enabled(int ch, bool enabled); // 开关（turn_on / turn_off）
-float get_hx711_scale(int ch);
-long  get_hx711_tare(int ch);
-bool  get_hx711_enabled(int ch);                  // 默认 true（开启）
+// ---- 数据转换移位位数 N（全局参数，三通道共享；合法 0~8，默认 6）----
+// 非法写入拒绝；N 修改视为版本变更，阈值类参数恢复默认（需现场重新标定）；
+// 修改后重启生效。
+bool nvs_set_shift_n(int n);
+int  get_shift_n();
 
 // 阈值偏移量配置（ch: 0-2, offset: -500 到 500）
 bool nvs_set_threshold_offset(int ch, int offset);

@@ -26,7 +26,7 @@ void ble_update(const uint16_t *sensors, const bool *states) {
     advData.setName(BLE_DEVICE_NAME);
 
     // 2. 构建 Manufacturer Specific Data payload
-    //    新格式：CID（2B）+ Sensor1~Sensor3（各 2B，大端序）+ StateByte（1B）+ SeqNum（1B）= 10 字节
+    //    格式：CID（2B）+ Sensor1~Sensor3（各 2B，大端序）+ StateByte（1B）+ SeqNum（1B）= 10 字节
     std::string mData;
     mData.reserve(2 + SENSOR_COUNT * 2 + 1 + 1);
     mData.push_back((char)BLE_COMPANY_ID_LSB);

@@ -9,16 +9,27 @@
 
 #define SENSOR_COUNT    3
 
+// -------- 数据转换参数（N 为 NVS 可配置项，此处为默认值与合法范围） --------
+#define HX711_SHIFT_N_DEFAULT   6    // 右移位数 N 默认值（合法 0~8）
+#define HX711_SHIFT_N_MIN       0    // N 下限：精度上限（1 LSB = 1 原始计数）
+#define HX711_SHIFT_N_MAX       8    // N 上限：精度下限（1 LSB = 256 原始计数，窗口覆盖全量程）
+
+// 启动自检基线合法范围（16 位量程中部附近）
+#define HX711_BASELINE_CHECK_LOW   8192
+#define HX711_BASELINE_CHECK_HIGH  57344
+
 /**
- * @brief 将 HX711 读取的克力值转换为 uint16_t（保留一位小数，乘以 10）
- *        量程：0 ~ 6553.5 g（uint16_t 满值 65535 对应 6553.5 g）
- *        负值（传感器被反向拉力）截断为 0
+ * @brief HX711 两步转换：24 位有符号原始值 → 16 位无符号计数
+ *        第一步：X = 原始值 + 2^K（32 位有符号中间值，K = N + 15）
+ *        第二步：右移 N 位得到 uint16_t
+ *        N 越小精度越高（1 LSB = 2^N 原始计数），窗口 ±2^(N+15) 须罩住
+ *        实际零偏与负载；N < 8 时越窗结果回绕，由启动自检告警提示。
+ * @param raw     24 位有符号原始值（HX711 库 read() 返回值）
+ * @param shift_n 右移位数 N（NVS 可配置，合法 0~8）
  */
-inline uint16_t convert_to_force(float gram_val) {
-    float val = gram_val * 10.0f; // 0.1g 分辨率
-    if (val < 0.0f)     val = 0.0f;
-    if (val > 65535.0f) val = 65535.0f;
-    return (uint16_t)val;
+inline uint16_t hx711_raw_to_u16(int32_t raw, uint8_t shift_n) {
+    int32_t x = raw + (1L << (shift_n + 15));
+    return (uint16_t)(x >> shift_n);
 }
 
 // -------- HX711 引脚定义（3 路独立 HX711） --------
@@ -52,6 +63,11 @@ inline uint16_t convert_to_force(float gram_val) {
 
 #define FACTORY_WIFI_AP_SSID    "AP_HX711"
 #define FACTORY_WIFI_AP_PASSWORD "12344321"
+
+// STA 断线重连：基础间隔起指数退避（20s→40s→80s→160s→320s 封顶）。
+// 避免 STA 反复扫描占用射频导致 AP beacon 缺帧（AP 扫不到的直接原因）
+#define WIFI_RECONNECT_BASE_MS      20000UL
+#define WIFI_RECONNECT_BACKOFF_MAX_SHIFT 4
 
 // -------- MQTT Broker & 设备命名配置 --------
 #define FACTORY_DEVICE_NAME     "home"
