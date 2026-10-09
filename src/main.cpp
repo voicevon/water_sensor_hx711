@@ -126,8 +126,8 @@ void loop() {
     if (now - s_last_send_time >= SEND_INTERVAL_MS) {
         s_last_send_time = now;
 
-        // 1. 读取 3 路 HX711 原始计数（uint16_t，已按 N 缩放）
-        uint16_t all_raw[3] = { 0, 0, 0 };
+        // 1. 读取 3 路 HX711 原始计数（int32_t 24位有符号）
+        int32_t all_raw[3] = { 0, 0, 0 };
         bool read_ok = HX711_Read_All(all_raw);
 
         if (!read_ok) {
@@ -157,9 +157,9 @@ void loop() {
         }
 
         if (read_ok) {
-            // 3. 组装 BLE 与 MQTT 输出数组
-            uint16_t out_sensors[SENSOR_COUNT] = { 0, 0, 0 };
-            bool     out_states[SENSOR_COUNT]  = { false, false, false };
+            // 3. 组装 BLE 与 MQTT 输出数组 (int32_t 承载 24位有符号数)
+            int32_t out_sensors[SENSOR_COUNT] = { 0, 0, 0 };
+            bool    out_states[SENSOR_COUNT]  = { false, false, false };
 
             for (int i = 0; i < SENSOR_COUNT; i++) {
                 out_sensors[i] = all_raw[i];
@@ -184,15 +184,15 @@ void loop() {
             }
 
             // 5. 本地串口诊断日志
-            Serial.println("----------------------------------------");
-            Serial.println("CH  RAW_U16  FILTERED BASELINE THRESHOLD  STATE");
+            Serial.println("------------------------------------------------------------");
+            Serial.println("CH  RAW_INT24   FILTERED    BASELINE    THRESHOLD   STATE");
             for (int i = 0; i < 3; i++) {
-                Serial.printf("  %d  %-7u  %-8u %-8u %-9u  %s\n",
+                Serial.printf("  %d  %-11ld %-11ld %-11ld %-11ld %s\n",
                               i,
-                              all_raw[i],
-                              s_sensors[i].getFiltered(),
-                              s_sensors[i].getBaseline(),
-                              s_sensors[i].getThreshold(),
+                              (long)all_raw[i],
+                              (long)s_sensors[i].getFiltered(),
+                              (long)s_sensors[i].getBaseline(),
+                              (long)s_sensors[i].getThreshold(),
                               s_sensors[i].isDetected() ? "TRIGGERED" : "IDLE");
             }
         }

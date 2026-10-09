@@ -285,7 +285,7 @@ void wifi_mqtt_loop(unsigned long current_time) {
 // ============================================================
 //  发布传感器数据
 // ============================================================
-bool mqtt_publish(const uint16_t *sensors, uint8_t stateByte) {
+bool mqtt_publish(const int32_t *sensors, uint8_t stateByte) {
     if (!s_mqtt_send_enabled) {
         return false; // 未收到启动命令使能时静默跳过
     }
@@ -300,8 +300,8 @@ bool mqtt_publish(const uint16_t *sensors, uint8_t stateByte) {
 
     char json_buf[256];
     snprintf(json_buf, sizeof(json_buf),
-             "{\"name\":\"%s\", \"sensor1\":%u, \"sensor2\":%u, \"sensor3\":%u, \"state\":%u}",
-             get_device_name().c_str(), sensors[0], sensors[1], sensors[2], stateByte);
+             "{\"name\":\"%s\", \"sensor1\":%ld, \"sensor2\":%ld, \"sensor3\":%ld, \"state\":%u}",
+             get_device_name().c_str(), (long)sensors[0], (long)sensors[1], (long)sensors[2], stateByte);
 
     Serial.printf("[MQTT Publish] Topic: %s, Payload: %s\n", MQTT_STATUS_TOPIC, json_buf);
     return s_mqttClient.publish(MQTT_STATUS_TOPIC, json_buf);

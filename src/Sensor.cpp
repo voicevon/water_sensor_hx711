@@ -74,7 +74,7 @@ void Sensor::setEnvWindow(int w) {
 //  算法一内部：DYNAMIC 辅助函数
 // ============================================================
 
-uint16_t Sensor::_pushFilter(uint16_t value) {
+int32_t Sensor::_pushFilter(int32_t value) {
     if (_maCount < MA_WINDOW) {
         _maBuf[_maHead] = value;
         _maSum += value;
@@ -85,10 +85,10 @@ uint16_t Sensor::_pushFilter(uint16_t value) {
         _maSum += value;
     }
     _maHead = (_maHead + 1) % MA_WINDOW;
-    return (uint16_t)(_maSum / _maCount);
+    return (int32_t)(_maSum / _maCount);
 }
 
-uint16_t Sensor::_pushBaseline(uint16_t value) {
+int32_t Sensor::_pushBaseline(int32_t value) {
     if (_baseCount < BASELINE_WINDOW) {
         _baseBuf[_baseHead] = value;
         _baseSum += value;
@@ -99,27 +99,25 @@ uint16_t Sensor::_pushBaseline(uint16_t value) {
         _baseSum += value;
     }
     _baseHead = (_baseHead + 1) % BASELINE_WINDOW;
-    return (uint16_t)(_baseSum / _baseCount);
+    return (int32_t)(_baseSum / _baseCount);
 }
 
-uint16_t Sensor::getThreshold() const {
+int32_t Sensor::getThreshold() const {
     // DYNAMIC 模式下有意义；其他模式下复用此字段作展示
-    int thresh;
+    int32_t thresh;
     if (_lastState == SensorState::NO_WATER) {
-        thresh = (int)_baselineValue + _thresholdOffset;
+        thresh = _baselineValue + _thresholdOffset;
     } else {
-        thresh = (int)_baselineValue - _thresholdOffset;
+        thresh = _baselineValue - _thresholdOffset;
     }
-    if (thresh < 0)     return 0;
-    if (thresh > 65535) return 65535;
-    return (uint16_t)thresh;
+    return thresh;
 }
 
 // ============================================================
 //  算法一：DYNAMIC 运行逻辑（含 Fix A & Fix B）
 // ============================================================
 
-void Sensor::_runDynamic(uint16_t value) {
+void Sensor::_runDynamic(int32_t value) {
     _filteredValue = _pushFilter(value);
     _baselineValue = _pushBaseline(_filteredValue);
 
@@ -130,8 +128,8 @@ void Sensor::_runDynamic(uint16_t value) {
             _hasWaterStartTime = millis();
         }
         if (millis() - _hasWaterStartTime >= WATER_WATCHDOG_TIMEOUT_MS) {
-            Serial.printf("[WDT] 物理通道 %d 持续有水达到 5 小时，强制复位为 DRY！电容：%u，基准：%u\n",
-                          _id, _filteredValue, _baselineValue);
+            Serial.printf("[WDT] 物理通道 %d 持续有水达到 5 小时，强制复位为 DRY！当前值：%ld，基准：%ld\n",
+                          _id, (long)_filteredValue, (long)_baselineValue);
             _lastState = SensorState::NO_WATER;
             _hasWaterStartTime = 0;
             _notifyStateChange(SensorState::NO_WATER);
@@ -143,7 +141,7 @@ void Sensor::_runDynamic(uint16_t value) {
     }
 
     // 2. 施密特双向迟滞状态机
-    uint16_t curThreshold = getThreshold();
+    int32_t curThreshold = getThreshold();
     SensorState nextState = _lastState;
 
     if (_lastState == SensorState::NO_WATER) {
@@ -173,7 +171,7 @@ void Sensor::_runDynamic(uint16_t value) {
 //  对应 Python DiscreteVarianceAlgorithm，O(1) 增量 sum 实现
 // ============================================================
 
-void Sensor::_runDiscrete(uint16_t value) {
+void Sensor::_runDiscrete(int32_t value) {
     // 1. 基准线均值（DISCRETE_BASELINE_WINDOW = 200）
     if (_dBaseCount < DISCRETE_BASELINE_WINDOW) {
         _dBaseBuf[_dBaseHead] = value;
@@ -185,11 +183,11 @@ void Sensor::_runDiscrete(uint16_t value) {
         _dBaseSum += value;
     }
     _dBaseHead = (_dBaseHead + 1) % DISCRETE_BASELINE_WINDOW;
-    _dBaselineValue = (uint16_t)(_dBaseSum / _dBaseCount);
+    _dBaselineValue = (int32_t)(_dBaseSum / _dBaseCount);
 
-    // 2. 计算平方差
-    int32_t diff        = (int32_t)value - (int32_t)_dBaselineValue;
-    uint32_t squaredDiff = (uint32_t)(diff * diff);
+    // 2. 计算平方差 (使用 64 位防平方溢出)
+    int64_t diff         = (int64_t)value - (int64_t)_dBaselineValue;
+    uint64_t squaredDiff = (uint64_t)(diff * diff);
 
     // 3. 方差平滑（DISCRETE_VARIANCE_WINDOW = 30）
     if (_dVarCount < DISCRETE_VARIANCE_WINDOW) {
@@ -202,20 +200,16 @@ void Sensor::_runDiscrete(uint16_t value) {
         _dVarSum += squaredDiff;
     }
     _dVarHead = (_dVarHead + 1) % DISCRETE_VARIANCE_WINDOW;
-    _dVarianceSmoothed = (uint32_t)(_dVarSum / _dVarCount);
+    _dVarianceSmoothed = _dVarSum / _dVarCount;
 
     // 4. 阈值判定（无迟滞，与 Python 一致）
-    SensorState nextState = (_dVarianceSmoothed > (uint32_t)_varThreshold)
+    SensorState nextState = (_dVarianceSmoothed > (uint64_t)_varThreshold)
                             ? SensorState::HAS_WATER
                             : SensorState::NO_WATER;
 
     // 5. 将中间值映射到 filtered/baseline/threshold 供 web 展示
-    //    借用 filtered 字段传方差值，baseline 传均值，threshold 传阈值（对齐 Python 约定）
-    _filteredValue  = (uint16_t)(_dVarianceSmoothed > 65535 ? 65535 : _dVarianceSmoothed);
+    _filteredValue  = (int32_t)(_dVarianceSmoothed > 2147483647ULL ? 2147483647 : _dVarianceSmoothed);
     _baselineValue  = _dBaselineValue;
-    // getThreshold() 在 DISCRETE 模式下返回的是 baseline ± offset，
-    // 但前端展示 threshold 字段由 web_config 统一调 getThreshold() 获取，
-    // 所以此处不额外设置。
 
     if (nextState != _lastState) {
         _lastState = nextState;
@@ -228,19 +222,18 @@ void Sensor::_runDiscrete(uint16_t value) {
 //  对应 Python EnvelopeRangeAlgorithm，O(envWindow) max/min 遍历
 // ============================================================
 
-void Sensor::_runEnvelope(uint16_t value) {
+void Sensor::_runEnvelope(int32_t value) {
     // 1. 写入环形缓冲区
     _envBuf[_envHead] = value;
     _envHead = (_envHead + 1) % _envWindow;
     if (_envCount < _envWindow) _envCount++;
 
-    // 2. O(envWindow) 遍历求 max/min（窗口最大 120，ESP32 可接受）
-    uint16_t upper = _envBuf[0];
-    uint16_t lower = _envBuf[0];
-    // 从有效数据范围内遍历
+    // 2. O(envWindow) 遍历求 max/min
+    int32_t upper = _envBuf[0];
+    int32_t lower = _envBuf[0];
     int startIdx = (_envCount < _envWindow) ? 0 : _envHead;
     for (int i = 0; i < _envCount; i++) {
-        uint16_t v = _envBuf[(startIdx + i) % _envWindow];
+        int32_t v = _envBuf[(startIdx + i) % _envWindow];
         if (v > upper) upper = v;
         if (v < lower) lower = v;
     }
@@ -252,7 +245,6 @@ void Sensor::_runEnvelope(uint16_t value) {
     // 3. 无水基准线追踪（EMA，仅在无水时更新）
     if (_lastState == SensorState::NO_WATER) {
         if (_dryBaseline < 0.0f) {
-            // Fix #6 等价：< 0 表示未初始化，首次赋值
             _dryBaseline = diff;
         } else {
             float alpha;
@@ -265,7 +257,7 @@ void Sensor::_runEnvelope(uint16_t value) {
         }
     }
 
-    // 4. 施密特滞回触发判定（使用局部变量 dry 安全访问，防 _dryBaseline 为负时出错）
+    // 4. 施密特滞回触发判定
     float dry = (_dryBaseline >= 0.0f) ? _dryBaseline : 0.0f;
     SensorState nextState = _lastState;
     if (_lastState == SensorState::NO_WATER) {
@@ -278,9 +270,9 @@ void Sensor::_runEnvelope(uint16_t value) {
         }
     }
 
-    // 5. 将包络值映射到 filtered/baseline 字段供 web 展示（对齐 Python 约定）
-    _filteredValue  = _envUpper;   // 借用 filtered 字段传上线
-    _baselineValue  = _envLower;   // 借用 baseline 字段传下线
+    // 5. 将包络值映射到 filtered/baseline 字段供 web 展示
+    _filteredValue  = _envUpper;
+    _baselineValue  = _envLower;
     _rawValue       = value;
 
     if (nextState != _lastState) {
@@ -293,7 +285,7 @@ void Sensor::_runEnvelope(uint16_t value) {
 //  公共接口：pushRaw() — 按 AlgoType 分发
 // ============================================================
 
-void Sensor::pushRaw(uint16_t value) {
+void Sensor::pushRaw(int32_t value) {
     _rawValue = value;
 
     switch (_algoType) {

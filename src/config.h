@@ -9,28 +9,9 @@
 
 #define SENSOR_COUNT    3
 
-// -------- 数据转换参数（N 为 NVS 可配置项，此处为默认值与合法范围） --------
-#define HX711_SHIFT_N_DEFAULT   6    // 右移位数 N 默认值（合法 0~8）
-#define HX711_SHIFT_N_MIN       0    // N 下限：精度上限（1 LSB = 1 原始计数）
-#define HX711_SHIFT_N_MAX       8    // N 上限：精度下限（1 LSB = 256 原始计数，窗口覆盖全量程）
-
-// 启动自检基线合法范围（16 位量程中部附近）
-#define HX711_BASELINE_CHECK_LOW   8192
-#define HX711_BASELINE_CHECK_HIGH  57344
-
-/**
- * @brief HX711 两步转换：24 位有符号原始值 → 16 位无符号计数
- *        第一步：X = 原始值 + 2^K（32 位有符号中间值，K = N + 15）
- *        第二步：右移 N 位得到 uint16_t
- *        N 越小精度越高（1 LSB = 2^N 原始计数），窗口 ±2^(N+15) 须罩住
- *        实际零偏与负载；N < 8 时越窗结果回绕，由启动自检告警提示。
- * @param raw     24 位有符号原始值（HX711 库 read() 返回值）
- * @param shift_n 右移位数 N（NVS 可配置，合法 0~8）
- */
-inline uint16_t hx711_raw_to_u16(int32_t raw, uint8_t shift_n) {
-    int32_t x = raw + (1L << (shift_n + 15));
-    return (uint16_t)(x >> shift_n);
-}
+// -------- HX711 24 位有符号原生数据范围（直接使用原生 ADC 计数） --------
+#define HX711_RAW_MAX   8388607L   // 24位有符号最大值 (0x7FFFFF)
+#define HX711_RAW_MIN  -8388608L   // 24位有符号最小值 (-0x800000)
 
 // -------- HX711 引脚定义（3 路独立 HX711） --------
 // 每路 HX711 需要 DOUT（数据）和 SCK（时钟）两根线

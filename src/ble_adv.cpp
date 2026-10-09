@@ -19,22 +19,23 @@ void ble_init() {
 
 // ============================================================
 
-void ble_update(const uint16_t *sensors, const bool *states) {
+void ble_update(const int32_t *sensors, const bool *states) {
     // 1. 组装广播数据对象
     BLEAdvertisementData advData;
     advData.setFlags(0x06);         // General Discoverable Mode, BR/EDR Not Supported
     advData.setName(BLE_DEVICE_NAME);
 
     // 2. 构建 Manufacturer Specific Data payload
-    //    格式：CID（2B）+ Sensor1~Sensor3（各 2B，大端序）+ StateByte（1B）+ SeqNum（1B）= 10 字节
+    //    格式：CID（2B）+ Sensor1~Sensor3（各 3B，大端序）+ StateByte（1B）+ SeqNum（1B）= 13 字节
     std::string mData;
-    mData.reserve(2 + SENSOR_COUNT * 2 + 1 + 1);
+    mData.reserve(2 + SENSOR_COUNT * 3 + 1 + 1);
     mData.push_back((char)BLE_COMPANY_ID_LSB);
     mData.push_back((char)BLE_COMPANY_ID_MSB);
 
     for (int i = 0; i < SENSOR_COUNT; i++) {
-        mData.push_back((char)(sensors[i] >> 8));   // MSB
-        mData.push_back((char)(sensors[i] & 0xFF)); // LSB
+        mData.push_back((char)((sensors[i] >> 16) & 0xFF)); // Byte 2 (MSB)
+        mData.push_back((char)((sensors[i] >> 8) & 0xFF));  // Byte 1
+        mData.push_back((char)(sensors[i] & 0xFF));         // Byte 0 (LSB)
     }
 
     // 计算状态字节 (仅 3 个通道)

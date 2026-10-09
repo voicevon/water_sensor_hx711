@@ -26,14 +26,14 @@ bool nvs_set_mqtt_port(int val);
 bool nvs_set_shift_n(int n);
 int  get_shift_n();
 
-// 阈值偏移量配置（ch: 0-2, offset: -500 到 500）
+// 阈值偏移量配置（ch: 0-2, offset: -500000 到 500000）
 bool nvs_set_threshold_offset(int ch, int offset);
 
 // ---- 算法类型配置（ch: 0-2, type: 0=DYNAMIC, 1=DISCRETE, 2=ENVELOPE）----
 bool nvs_set_algo_type(int ch, int type);
 int  get_algo_type(int ch);
 
-// ---- 离散方差算法：方差触发阈值配置（ch: 0-2, threshold: 0 ~ 100000）----
+// ---- 离散方差算法：方差触发阈值配置（ch: 0-2, threshold: 0 ~ 100000000）----
 bool nvs_set_var_threshold(int ch, int threshold);
 int  get_var_threshold(int ch);
 
@@ -41,8 +41,8 @@ int  get_var_threshold(int ch);
 bool nvs_set_env_window(int ch, int window);        // 包络窗口（1~120）
 bool nvs_set_env_dry_up(int ch, int window);        // 基准线上升窗口
 bool nvs_set_env_dry_down(int ch, int window);      // 基准线下降窗口
-bool nvs_set_env_upper_offset(int ch, int offset);  // 上触发偏置（0~5000）
-bool nvs_set_env_lower_offset(int ch, int offset);  // 下恢复偏置（0~5000）
+bool nvs_set_env_upper_offset(int ch, int offset);  // 上触发偏置（0~500000）
+bool nvs_set_env_lower_offset(int ch, int offset);  // 下恢复偏置（0~500000）
 
 int  get_env_window(int ch);
 int  get_env_dry_up(int ch);

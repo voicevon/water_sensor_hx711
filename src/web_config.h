@@ -21,8 +21,8 @@ void web_config_loop();
  * @param threshold  触发阈值（uint16_t）
  * @param detected   是否触发检测
  */
-void web_config_update_sensor(int idx, uint16_t raw_val, uint16_t filtered,
-                               uint16_t baseline, uint16_t threshold, bool detected);
+void web_config_update_sensor(int idx, int32_t raw_val, int32_t filtered,
+                               int32_t baseline, int32_t threshold, bool detected);
 
 /**
  * @brief 从 NVS 获取配置的 STA Wi-Fi SSID

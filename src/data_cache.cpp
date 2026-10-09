@@ -3,8 +3,8 @@
 // 3路 HX711 力传感器数据缓存（内部私有）
 static SensorDataCache s_sensor_cache[3] = {0};
 
-void data_cache_update_sensor(int idx, uint16_t raw_val, uint16_t filtered,
-                               uint16_t baseline, uint16_t threshold, bool detected) {
+void data_cache_update_sensor(int idx, int32_t raw_val, int32_t filtered,
+                               int32_t baseline, int32_t threshold, bool detected) {
     if (idx < 0 || idx >= 3) return;
     s_sensor_cache[idx].raw_val   = raw_val;
     s_sensor_cache[idx].filtered  = filtered;

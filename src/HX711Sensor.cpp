@@ -16,7 +16,7 @@ static const uint8_t s_sck_pins[3]  = { HX711_1_SCK_PIN,  HX711_2_SCK_PIN,  HX71
 static bool s_online[3] = { false, false, false };
 
 // 上一次有效读数（读取失败时保持）
-static uint16_t s_last_u16[3] = { 0, 0, 0 };
+static int32_t s_last_raw[3] = { 0, 0, 0 };
 
 // HX711 采集等待超时（毫秒）
 static const uint32_t HX711_READY_TIMEOUT_MS = 500;
@@ -43,7 +43,7 @@ static bool wait_ready(int ch) {
  * ============================================================ */
 
 bool HX711_Init_All(void) {
-    Serial.printf("[HX711] Initializing 3 channels...\n");
+    Serial.printf("[HX711] Initializing 3 channels (24-bit raw mode)...\n");
     Serial.printf("[HX711] Ch1: DOUT=%d SCK=%d | Ch2: DOUT=%d SCK=%d | Ch3: DOUT=%d SCK=%d\n",
                   s_dout_pins[0], s_sck_pins[0],
                   s_dout_pins[1], s_sck_pins[1],
@@ -62,41 +62,39 @@ bool HX711_Init_All(void) {
             continue;
         }
 
-        // 无校准参数：直接使用原始值，不做去皮与克数换算
+        // 无校准参数：直接使用 24 位原生原始值
         s_online[ch] = true;
         online_count++;
-        Serial.printf("[HX711] Ch%d online (raw mode, no tare/scale).\n", ch + 1);
+        Serial.printf("[HX711] Ch%d online (24-bit raw signed mode).\n", ch + 1);
     }
 
-    Serial.printf("[HX711] Init complete. %d/3 channels online. shift N=%d\n",
-                  online_count, get_shift_n());
+    Serial.printf("[HX711] Init complete. %d/3 channels online.\n", online_count);
     return (online_count > 0);
 }
 
 /* ============================================================ */
 
-bool HX711_Read_All(uint16_t* out_u16) {
+bool HX711_Read_All(int32_t* out_raw) {
     bool any_ok = false;
-    uint8_t shift_n = get_shift_n();
 
     for (int ch = 0; ch < 3; ch++) {
         // 离线通道输出 0 并跳过
         if (!s_online[ch]) {
-            out_u16[ch] = 0;
+            out_raw[ch] = 0;
             continue;
         }
 
         if (!wait_ready(ch)) {
             Serial.printf("[HX711] Ch%d read timeout, using last value.\n", ch + 1);
-            out_u16[ch] = s_last_u16[ch];
+            out_raw[ch] = s_last_raw[ch];
             continue;
         }
 
-        // 直接取 24 位原始值，立即按两步公式转换为 uint16_t
+        // 直接取 24 位有符号原生值
         long raw = s_hx711[ch].read();
-        uint16_t val = hx711_raw_to_u16((int32_t)raw, shift_n);
-        s_last_u16[ch] = val;
-        out_u16[ch]    = val;
+        int32_t val = (int32_t)raw;
+        s_last_raw[ch] = val;
+        out_raw[ch]    = val;
         any_ok = true;
     }
 
@@ -106,18 +104,16 @@ bool HX711_Read_All(uint16_t* out_u16) {
 /* ============================================================ */
 
 void HX711_SelfCheckBaseline(void) {
-    uint8_t shift_n = get_shift_n();
-    Serial.printf("[HX711] Self-check: baseline valid range %d~%d (N=%d)\n",
-                  HX711_BASELINE_CHECK_LOW, HX711_BASELINE_CHECK_HIGH, shift_n);
+    Serial.printf("[HX711] Self-check: verifying 24-bit baseline health...\n");
 
     for (int ch = 0; ch < 3; ch++) {
         if (!s_online[ch]) continue;
 
-        uint32_t sum = 0;
+        int64_t sum = 0;
         int ok_count = 0;
         for (int k = 0; k < HX711_SELFCHECK_SAMPLES; k++) {
             if (wait_ready(ch)) {
-                sum += (uint32_t)hx711_raw_to_u16((int32_t)s_hx711[ch].read(), shift_n);
+                sum += (int64_t)s_hx711[ch].read();
                 ok_count++;
             }
         }
@@ -126,15 +122,14 @@ void HX711_SelfCheckBaseline(void) {
             continue;
         }
 
-        uint16_t baseline = (uint16_t)(sum / ok_count);
-        Serial.printf("[HX711] Ch%d baseline = %u (%d samples)\n",
-                      ch + 1, baseline, ok_count);
+        int32_t baseline = (int32_t)(sum / ok_count);
+        Serial.printf("[HX711] Ch%d 24-bit baseline = %ld (%d samples)\n",
+                      ch + 1, (long)baseline, ok_count);
 
-        if (baseline < HX711_BASELINE_CHECK_LOW || baseline > HX711_BASELINE_CHECK_HIGH) {
-            Serial.printf("[HX711] WARNING: Ch%d baseline %u out of range [%d, %d]!\n",
-                          ch + 1, baseline, HX711_BASELINE_CHECK_LOW, HX711_BASELINE_CHECK_HIGH);
-            Serial.printf("[HX711] Current N=%d does not match actual zero offset. "
-                          "Adjust N in web config and reboot.\n", shift_n);
+        if (baseline >= 8380000L || baseline <= -8380000L) {
+            Serial.printf("[HX711] WARNING: Ch%d baseline %ld is saturated near 24-bit limits!\n",
+                          ch + 1, (long)baseline);
+            Serial.printf("[HX711] Check sensor wiring or mechanical load.\n");
         }
     }
 }

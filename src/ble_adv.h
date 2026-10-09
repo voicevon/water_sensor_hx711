@@ -18,11 +18,11 @@ void ble_init();
  *
  * 广播数据格式（Manufacturer Specific Data，标准 LTV 结构）：
  *   Company ID : 0xFFFF（LSB 在前，小端序，共 2 字节）
- *   Sensor1~3  : 各通道 16 位无符号原始计数，每通道 uint16_t 大端序，共 6 字节
+ *   Sensor1~3  : 各通道 24 位有符号原始计数，每通道 3 字节大端序，共 9 字节
  *   StateByte  : 触发状态位图，1 字节
  *   Seq Num    : 递增序列号，1 字节，用于接收端检测丢包
- *   总 Payload : 10 字节
+ *   总 Payload : 13 字节
  *
  * @param sensors 本轮采集的传感器数据数组指针（大小为 SENSOR_COUNT）
  */
-void ble_update(const uint16_t *sensors, const bool *states);
+void ble_update(const int32_t *sensors, const bool *states);

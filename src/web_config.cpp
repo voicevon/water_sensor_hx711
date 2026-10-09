@@ -178,24 +178,14 @@ static void handle_post_algo() {
     s_server.send(200, "text/plain", "OK");
 }
 
-// POST /api/hx711 — 设置移位位数 N（全局参数，三通道共享）
-// 参数：n=<0~8>，重启生效，N 变更时阈值类参数恢复默认
+// POST /api/hx711 — 24 位原生直通模式（移位配置已下线）
 static void handle_post_hx711() {
-    if (!s_server.hasArg("n")) {
-        s_server.send(400, "text/plain", "Missing n");
-        return;
-    }
-    int n = s_server.arg("n").toInt();
-    if (!nvs_set_shift_n(n)) {
-        s_server.send(400, "text/plain", "n invalid (valid 0~8) or unchanged");
-        return;
-    }
-    s_server.send(200, "text/plain", "N OK (reboot to take effect, thresholds reset)");
+    s_server.send(200, "text/plain", "24-bit raw pass-through mode active (shift N deprecated)");
 }
 
-// GET /api/hx711 — 返回移位参数 N 与各通道在线状态
+// GET /api/hx711 — 返回各通道在线状态（shift_n 返回 0）
 static void handle_get_hx711() {
-    String json = "{\"shift_n\":" + String(get_shift_n()) + ",\"channels\":[";
+    String json = "{\"shift_n\":0,\"channels\":[";
     for (int i = 0; i < 3; i++) {
         json += "{";
         json += "\"ch\":" + String(i) + ",";
@@ -254,7 +244,7 @@ void web_config_loop() {
 // ============================================================
 //  web_config.h 中声明的缓存更新接口（转发至 data_cache）
 // ============================================================
-void web_config_update_sensor(int idx, uint16_t raw_val, uint16_t filtered,
-                               uint16_t baseline, uint16_t threshold, bool detected) {
+void web_config_update_sensor(int idx, int32_t raw_val, int32_t filtered,
+                               int32_t baseline, int32_t threshold, bool detected) {
     data_cache_update_sensor(idx, raw_val, filtered, baseline, threshold, detected);
 }

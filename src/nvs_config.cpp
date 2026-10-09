@@ -18,8 +18,8 @@ static const char NVS_KEY_SHIFT_N[]  = "shift_n";
 static const char NVS_KEY_PARAM_VER[]= "pver";
 
 // 参数版本号：参数存储结构变更（如 N 引入/语义变化）时递增，
-// 启动时检测到旧版本参数即重置为默认值
-static const uint8_t PARAM_VERSION = 2;
+// 参数版本号：升级为 3（24 位原生有符号模式，默认阈值与结构更新）
+static const uint8_t PARAM_VERSION = 3;
 
 // ============================================================
 //  配置项内存缓存（内部私有）
@@ -30,40 +30,39 @@ static String s_device_name  = "";
 static String s_mqtt_broker  = "";
 static int    s_mqtt_port    = 1883;
 
-// ---- 数据转换移位位数 N（全局参数，三通道共享；合法 0~8，默认 6） ----
-static int s_shift_n = HX711_SHIFT_N_DEFAULT;
+// ---- 移位位数已废弃（保持 0 直通） ----
+static int s_shift_n = 0;
 
-// ---- 阈值偏移量（3路，默认 50） ----
-static int s_threshold_offset[3] = { 50, 50, 50 };
+// ---- 阈值偏移量（3路，24位原生模式默认 3200） ----
+static int s_threshold_offset[3] = { 3200, 3200, 3200 };
 
 // ---- 算法类型缓存（0=DYNAMIC, 1=DISCRETE, 2=ENVELOPE） ----
 static int s_algo_type[3] = { 0, 0, 0 };
 
-// ---- 离散方差阈值缓存（默认 5000） ----
-static int s_var_threshold[3] = { 5000, 5000, 5000 };
+// ---- 离散方差阈值缓存（24位模式默认 500000） ----
+static int s_var_threshold[3] = { 500000, 500000, 500000 };
 
 // ---- 包络算法参数缓存 ----
-static int s_env_window[3]       = { 30,   30,   30   };
-static int s_env_dry_up[3]       = { 1000, 1000, 1000 };
-static int s_env_dry_down[3]     = { 1000, 1000, 1000 };
-static int s_env_upper_offset[3] = { 500,  500,  500  };
-static int s_env_lower_offset[3] = { 300,  300,  300  };
+static int s_env_window[3]       = { 30,    30,    30    };
+static int s_env_dry_up[3]       = { 1000,  1000,  1000  };
+static int s_env_dry_down[3]     = { 1000,  1000,  1000  };
+static int s_env_upper_offset[3] = { 32000, 32000, 32000 };
+static int s_env_lower_offset[3] = { 19200, 19200, 19200 };
 
 // ============================================================
 //  内部辅助：阈值类参数恢复默认值（内存 + NVS）
-//  触发场景：参数版本变更、移位位数 N 修改
 // ============================================================
 static void reset_threshold_params() {
     for (int i = 0; i < 3; i++) {
-        s_threshold_offset[i] = 50;   s_prefs.putInt(("thr" + String(i)).c_str(), 50);
-        s_var_threshold[i]    = 5000; s_prefs.putInt(("vt"  + String(i)).c_str(), 5000);
-        s_env_window[i]       = 30;   s_prefs.putInt(("ew"  + String(i)).c_str(), 30);
-        s_env_dry_up[i]       = 1000; s_prefs.putInt(("edu" + String(i)).c_str(), 1000);
-        s_env_dry_down[i]     = 1000; s_prefs.putInt(("edd" + String(i)).c_str(), 1000);
-        s_env_upper_offset[i] = 500;  s_prefs.putInt(("eu"  + String(i)).c_str(), 500);
-        s_env_lower_offset[i] = 300;  s_prefs.putInt(("el"  + String(i)).c_str(), 300);
+        s_threshold_offset[i] = 3200;   s_prefs.putInt(("thr" + String(i)).c_str(), 3200);
+        s_var_threshold[i]    = 500000; s_prefs.putInt(("vt"  + String(i)).c_str(), 500000);
+        s_env_window[i]       = 30;     s_prefs.putInt(("ew"  + String(i)).c_str(), 30);
+        s_env_dry_up[i]       = 1000;   s_prefs.putInt(("edu" + String(i)).c_str(), 1000);
+        s_env_dry_down[i]     = 1000;   s_prefs.putInt(("edd" + String(i)).c_str(), 1000);
+        s_env_upper_offset[i] = 32000;  s_prefs.putInt(("eu"  + String(i)).c_str(), 32000);
+        s_env_lower_offset[i] = 19200;  s_prefs.putInt(("el"  + String(i)).c_str(), 19200);
     }
-    Serial.println("[NvsConfig] Threshold-class params reset to defaults (field recalibration required).");
+    Serial.println("[NvsConfig] Threshold-class params reset to 24-bit defaults.");
 }
 
 // ============================================================
@@ -87,17 +86,12 @@ void nvs_config_init() {
         s_prefs.putUChar(NVS_KEY_PARAM_VER, PARAM_VERSION);
     }
 
-    // 加载移位位数 N：合法 0~8，非法读出回退默认
-    s_shift_n = (int)s_prefs.getUChar(NVS_KEY_SHIFT_N, HX711_SHIFT_N_DEFAULT);
-    if (s_shift_n < HX711_SHIFT_N_MIN || s_shift_n > HX711_SHIFT_N_MAX) {
-        Serial.printf("[NvsConfig] Invalid shift_n=%d in NVS, fallback to default %d\n",
-                      s_shift_n, HX711_SHIFT_N_DEFAULT);
-        s_shift_n = HX711_SHIFT_N_DEFAULT;
-    }
+    // 移位位数 N 已废弃，保持 0 直通
+    s_shift_n = 0;
 
     // 加载 3 路阈值与算法参数
     for (int i = 0; i < 3; i++) {
-        s_threshold_offset[i] = s_prefs.getInt(("thr" + String(i)).c_str(), 50);
+        s_threshold_offset[i] = s_prefs.getInt(("thr" + String(i)).c_str(), 3200);
         s_algo_type[i]        = s_prefs.getInt(("al"  + String(i)).c_str(), 0);
         s_var_threshold[i]    = s_prefs.getInt(("vt"  + String(i)).c_str(), 5000);
         s_env_window[i]       = s_prefs.getInt(("ew"  + String(i)).c_str(), 30);
@@ -180,19 +174,13 @@ bool nvs_set_mqtt_port(int val) {
 }
 
 bool nvs_set_shift_n(int n) {
-    if (n < HX711_SHIFT_N_MIN || n > HX711_SHIFT_N_MAX) return false; // 合法范围 0~8
-    if (s_shift_n == n) return false;
-    s_shift_n = n;
-    s_prefs.putUChar(NVS_KEY_SHIFT_N, (uint8_t)n);
-    Serial.printf("[NvsConfig] Shift N set to %d (reboot to take effect)\n", n);
-    // N 变更视为版本变更：阈值类参数恢复默认，需现场重新标定
-    reset_threshold_params();
-    return true;
+    (void)n;
+    return false; // 24位直通模式下移位参数已废弃
 }
 
 bool nvs_set_threshold_offset(int ch, int offset) {
     if (ch < 0 || ch >= 3) return false;
-    if (offset < -500 || offset > 500) return false;
+    if (offset < -500000 || offset > 500000) return false;
     if (s_threshold_offset[ch] == offset) return false;
     s_threshold_offset[ch] = offset;
     s_prefs.putInt(("thr" + String(ch)).c_str(), offset);
@@ -210,7 +198,7 @@ bool nvs_set_algo_type(int ch, int type) {
 
 bool nvs_set_var_threshold(int ch, int threshold) {
     if (ch < 0 || ch >= 3) return false;
-    if (threshold < 0 || threshold > 100000) return false;
+    if (threshold < 0 || threshold > 100000000) return false;
     if (s_var_threshold[ch] == threshold) return false;
     s_var_threshold[ch] = threshold;
     s_prefs.putInt(("vt" + String(ch)).c_str(), threshold);
@@ -246,7 +234,7 @@ bool nvs_set_env_dry_down(int ch, int window) {
 
 bool nvs_set_env_upper_offset(int ch, int offset) {
     if (ch < 0 || ch >= 3) return false;
-    if (offset < 0 || offset > 5000) return false;
+    if (offset < 0 || offset > 500000) return false;
     if (s_env_upper_offset[ch] == offset) return false;
     s_env_upper_offset[ch] = offset;
     s_prefs.putInt(("eu" + String(ch)).c_str(), offset);
@@ -255,7 +243,7 @@ bool nvs_set_env_upper_offset(int ch, int offset) {
 
 bool nvs_set_env_lower_offset(int ch, int offset) {
     if (ch < 0 || ch >= 3) return false;
-    if (offset < 0 || offset > 5000) return false;
+    if (offset < 0 || offset > 500000) return false;
     if (s_env_lower_offset[ch] == offset) return false;
     s_env_lower_offset[ch] = offset;
     s_prefs.putInt(("el" + String(ch)).c_str(), offset);

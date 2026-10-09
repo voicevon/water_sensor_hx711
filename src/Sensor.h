@@ -36,19 +36,19 @@ public:
     // 状态跳转回调：参数包含传感器ID和改变后的状态
     typedef void (*StateChangeCallback)(int sensorId, SensorState newState);
 
-    Sensor(int id, int thresholdOffset = 50);
+    Sensor(int id, int thresholdOffset = 3200);
 
     /**
-     * @brief 喂入最新的传感器原始电容值，返回更新后的通道状态
+     * @brief 喂入最新的传感器原始电容/力值，返回更新后的通道状态
      */
-    void pushRaw(uint16_t value);
+    void pushRaw(int32_t value);
 
     // ---- 通用 getter ----
     int getId() const { return _id; }
-    uint16_t getRaw() const { return _rawValue; }
-    uint16_t getFiltered() const { return _filteredValue; }
-    uint16_t getBaseline() const { return _baselineValue; }
-    uint16_t getThreshold() const;
+    int32_t getRaw() const { return _rawValue; }
+    int32_t getFiltered() const { return _filteredValue; }
+    int32_t getBaseline() const { return _baselineValue; }
+    int32_t getThreshold() const;
     SensorState getState() const { return _lastState; }
     bool isDetected() const { return _lastState == SensorState::HAS_WATER; }
 
@@ -91,9 +91,9 @@ private:
     //  算法一：动态施密特阈值（DYNAMIC）
     // ==========================================
     int _thresholdOffset;
-    uint16_t _rawValue     = 0;
-    uint16_t _filteredValue = 0;
-    uint16_t _baselineValue = 0;
+    int32_t _rawValue       = 0;
+    int32_t _filteredValue   = 0;
+    int32_t _baselineValue   = 0;
     SensorState _lastState = SensorState::NO_WATER;
     unsigned long _hasWaterStartTime = 0;
     StateChangeCallback _stateChangeCb = nullptr;
@@ -102,41 +102,41 @@ private:
     static const int MA_WINDOW       = 50;
     static const int BASELINE_WINDOW = 200;
 
-    uint16_t _maBuf[MA_WINDOW];
-    int      _maHead  = 0;
-    int      _maCount = 0;
-    uint32_t _maSum   = 0;
+    int32_t _maBuf[MA_WINDOW];
+    int     _maHead  = 0;
+    int     _maCount = 0;
+    int64_t _maSum   = 0;  // 64 位防累加溢出
 
-    uint16_t _baseBuf[BASELINE_WINDOW];
-    int      _baseHead  = 0;
-    int      _baseCount = 0;
-    uint32_t _baseSum   = 0;
+    int32_t _baseBuf[BASELINE_WINDOW];
+    int     _baseHead  = 0;
+    int     _baseCount = 0;
+    int64_t _baseSum   = 0;  // 64 位防累加溢出
 
-    uint16_t _pushFilter(uint16_t value);
-    uint16_t _pushBaseline(uint16_t value);
+    int32_t _pushFilter(int32_t value);
+    int32_t _pushBaseline(int32_t value);
 
     // ==========================================
     //  算法二：离散方差（DISCRETE）
     // ==========================================
-    int _varThreshold = 5000;  // 方差触发阈值（默认 5000，对应 Python 默认值）
+    int _varThreshold = 500000;  // 方差触发阈值 (24位模式默认 500000)
 
     static const int DISCRETE_BASELINE_WINDOW = 200;
     static const int DISCRETE_VARIANCE_WINDOW = 30;
 
-    uint16_t _dBaseBuf[DISCRETE_BASELINE_WINDOW];
+    int32_t  _dBaseBuf[DISCRETE_BASELINE_WINDOW];
     int      _dBaseHead  = 0;
     int      _dBaseCount = 0;
-    uint32_t _dBaseSum   = 0;
+    int64_t  _dBaseSum   = 0;  // 64 位防累加溢出
 
-    uint32_t _dVarBuf[DISCRETE_VARIANCE_WINDOW];
+    uint64_t _dVarBuf[DISCRETE_VARIANCE_WINDOW];
     int      _dVarHead  = 0;
     int      _dVarCount = 0;
-    uint64_t _dVarSum   = 0;
+    uint64_t _dVarSum   = 0;  // 64 位防平方差累加溢出
 
-    uint16_t _dBaselineValue   = 0;
-    uint32_t _dVarianceSmoothed = 0;
+    int32_t  _dBaselineValue    = 0;
+    uint64_t _dVarianceSmoothed = 0;
 
-    void _runDiscrete(uint16_t value);
+    void _runDiscrete(int32_t value);
 
     // ==========================================
     //  算法三：包络范围（ENVELOPE）
@@ -147,20 +147,20 @@ private:
     int _envUpperOffset   = 500;
     int _envLowerOffset   = 300;
 
-    uint16_t _envBuf[ENV_BUF_MAX];
-    int      _envHead  = 0;
-    int      _envCount = 0;
+    int32_t _envBuf[ENV_BUF_MAX];
+    int     _envHead  = 0;
+    int     _envCount = 0;
 
-    float _dryBaseline    = -1.0f;   // < 0 表示"未初始化"（对应 Python Fix #6 的 None）
-    uint16_t _envUpper    = 0;
-    uint16_t _envLower    = 0;
+    float   _dryBaseline    = -1.0f;   // < 0 表示"未初始化"
+    int32_t _envUpper       = 0;
+    int32_t _envLower       = 0;
 
-    void _runEnvelope(uint16_t value);
+    void _runEnvelope(int32_t value);
 
     // ==========================================
     //  公共内部实现
     // ==========================================
-    void _runDynamic(uint16_t value);
+    void _runDynamic(int32_t value);
     void _notifyStateChange(SensorState newState);
 };
 
