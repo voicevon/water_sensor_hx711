@@ -99,9 +99,28 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             return;
         }
         
-        // 2. 处理特定名称节点的启动调试逻辑
+        // 2. 处理特定名称节点的启动调试逻辑与兼容重启
         const char* name = doc["name"];
         if (name && strcmp(name, get_device_name().c_str()) == 0) {
+            const char* action = doc["action"];
+            if (action && strcmp(action, "restart") == 0) {
+                if (millis() < 15000UL) {
+                    Serial.println("[MQTT] WARN: Ignoring restart command within 15s boot cooldown!");
+                    return;
+                }
+                const char* cmd_id = doc["cmd_id"] | "";
+                Serial.printf("[MQTT] Legacy RESTART accepted (cmd_id: %s)! Sending ACK...\n", cmd_id);
+                String resp_topic = String("water/") + get_device_name() + "/control/response";
+                char ack_buf[256];
+                snprintf(ack_buf, sizeof(ack_buf),
+                         "{\"cmd_id\":\"%s\",\"from\":\"sensor\",\"action\":\"restart\",\"status\":\"accept\",\"event\":\"restarting\",\"name\":\"%s\"}",
+                         cmd_id, get_device_name().c_str());
+                s_mqttClient.publish(resp_topic.c_str(), ack_buf);
+                delay(300);
+                ESP.restart();
+                return;
+            }
+
             s_mqtt_send_enabled = true;
             int interval_sec = doc["interval"] | 1;
             
@@ -112,6 +131,56 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             s_last_mqtt_publish_time = 0; // 重置计时器使其立即发送一次
             
             Serial.printf("[MQTT] DEBUG ENABLED, interval: %d s\n", interval_sec);
+        }
+    }
+
+    // 匹配统一控制主题：water/{device_name}/control
+    String station_ctrl_topic = String("water/") + get_device_name() + "/control";
+    if (strcmp(topic, station_ctrl_topic.c_str()) == 0) {
+        char payload_str[256];
+        unsigned int len = length < 255 ? length : 255;
+        memcpy(payload_str, payload, len);
+        payload_str[len] = '\0';
+        
+        Serial.printf("[MQTT Control RX] Payload: %s\n", payload_str);
+        
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, payload_str);
+        if (error) {
+            Serial.printf("[MQTT Control] JSON parse error: %s\n", error.c_str());
+            return;
+        }
+        
+        const char* target = doc["target"];
+        if (!target || (strcmp(target, "sensor") != 0 && strcmp(target, "all") != 0)) {
+            Serial.printf("[MQTT Control] Ignored: target is not sensor or all (target: %s)\n", target ? target : "null");
+            return;
+        }
+        
+        const char* action = doc["action"];
+        if (action && strcmp(action, "restart") == 0) {
+            // 防死循环保护：若上电不足 15 秒，忽略重启指令
+            if (millis() < 15000UL) {
+                Serial.println("[MQTT Control] WARN: Ignoring restart command within 15s boot cooldown!");
+                return;
+            }
+            
+            const char* cmd_id = doc["cmd_id"] | "";
+            Serial.printf("[MQTT Control] RESTART command accepted (cmd_id: %s)! Sending ACK...\n", cmd_id);
+            
+            String resp_topic = String("water/") + get_device_name() + "/control/response";
+            char ack_buf[256];
+            snprintf(ack_buf, sizeof(ack_buf),
+                     "{\"cmd_id\":\"%s\",\"from\":\"sensor\",\"action\":\"restart\",\"status\":\"accept\",\"event\":\"restarting\",\"name\":\"%s\"}",
+                     cmd_id, get_device_name().c_str());
+            s_mqttClient.publish(resp_topic.c_str(), ack_buf);
+            
+            // 延迟 300ms 确保网络数据包完全送达网卡射频
+            delay(300);
+            
+            Serial.println("[MQTT Control] Rebooting ESP32 NOW...");
+            ESP.restart();
+            return;
         }
     }
 }
@@ -152,9 +221,22 @@ void mqtt_connect_task(void* pvParameters) {
             bool success = s_mqttClient.connect(clientId.c_str());
             if (success) {
                 Serial.println("[MQTT Task] Connected successfully!");
-                // 核心关键：握手成功当场在锁内原子订阅控制主题！
+                // 1. 订阅基础控制主题
                 s_mqttClient.subscribe(MQTT_CONTROL_TOPIC);
                 Serial.printf("[MQTT Task] Subscribed to topic: %s\n", MQTT_CONTROL_TOPIC);
+
+                // 2. 订阅统一控制主题：water/{device_name}/control
+                String station_ctrl_topic = String("water/") + get_device_name() + "/control";
+                s_mqttClient.subscribe(station_ctrl_topic.c_str());
+                Serial.printf("[MQTT Task] Subscribed to topic: %s\n", station_ctrl_topic.c_str());
+
+                // 3. 发布上线就绪通告到控制响应主题
+                String station_resp_topic = String("water/") + get_device_name() + "/control/response";
+                char boot_msg[128];
+                snprintf(boot_msg, sizeof(boot_msg),
+                         "{\"from\":\"sensor\",\"event\":\"online\",\"status\":\"ready\",\"name\":\"%s\"}",
+                         get_device_name().c_str());
+                s_mqttClient.publish(station_resp_topic.c_str(), boot_msg);
             } else {
                 Serial.printf("[MQTT Task] Connection failed, state = %d\n", s_mqttClient.state());
                 // 连接失败，主动将 IP 清零，下次重连时重新解析 DNS
